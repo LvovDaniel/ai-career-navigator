@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import './App.css'
-
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:8000'
 function App() {
   const [goal, setGoal] = useState('')
   const [skills, setSkills] = useState('')
@@ -28,7 +29,7 @@ function App() {
       // CREATE USER
       // =========================
 
-      const userResponse = await fetch('http://localhost:8000/users', {
+      const userResponse = await fetch('${API_BASE_URL}/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -55,7 +56,7 @@ function App() {
 
       for (const skill of skillList) {
         const skillResponse = await fetch(
-          'http://localhost:8000/skills',
+          '${API_BASE_URL}/skills',
           {
             method: 'POST',
             headers: {
@@ -81,7 +82,7 @@ function App() {
       // =========================
 
       const profileResponse = await fetch(
-        'http://localhost:8000/profile',
+        '${API_BASE_URL}/profile',
         {
           method: 'POST',
           headers: {
@@ -111,7 +112,7 @@ function App() {
       // =========================
 
       const response = await fetch(
-        `http://localhost:8000/analyze?user_id=${user.user_id}`,
+        `${API_BASE_URL}/analyze?user_id=${user.user_id}`,
         {
           method: 'POST',
         },
@@ -136,7 +137,7 @@ function App() {
 
       if (error instanceof TypeError) {
         alert(
-          'Frontend не может подключиться к Backend. Проверь, запущен ли FastAPI на http://localhost:8000',
+          'Frontend не может подключиться к Backend. Проверь, запущен ли FastAPI на ${API_BASE_URL}',
         )
       } else {
         alert(
