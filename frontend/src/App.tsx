@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import './App.css'
+
 const API_BASE_URL =
   import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
 function App() {
   const [goal, setGoal] = useState('')
   const [skills, setSkills] = useState('')
@@ -29,7 +31,7 @@ function App() {
       // CREATE USER
       // =========================
 
-     const userResponse = await fetch(`${API_BASE_URL}/users`, {
+      const userResponse = await fetch(`${API_BASE_URL}/users`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -43,36 +45,39 @@ function App() {
       })
 
       if (!userResponse.ok) {
+        const errorText = await userResponse.text()
+
         throw new Error(
-          `Ошибка создания пользователя: ${userResponse.status}`,
+          `Ошибка создания пользователя: ${userResponse.status} ${errorText}`,
         )
       }
 
       const user = await userResponse.json()
+
+      console.log('USER CREATED:', user)
 
       // =========================
       // SAVE SKILLS
       // =========================
 
       for (const skill of skillList) {
-        const skillResponse = await fetch(
-          '${API_BASE_URL}/skills',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              user_id: user.user_id,
-              skill: skill,
-              level: skillLevels[skill] || 3,
-            }),
+        const skillResponse = await fetch(`${API_BASE_URL}/skills`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-        )
+          body: JSON.stringify({
+            user_id: user.user_id,
+            skill: skill,
+            level: skillLevels[skill] || 3,
+          }),
+        })
 
         if (!skillResponse.ok) {
+          const errorText = await skillResponse.text()
+
           throw new Error(
-            `Ошибка сохранения навыка: ${skill}`,
+            `Ошибка сохранения навыка "${skill}": ${skillResponse.status} ${errorText}`,
           )
         }
       }
@@ -81,23 +86,20 @@ function App() {
       // SAVE PROFILE + PROJECT
       // =========================
 
-      const profileResponse = await fetch(
-        '${API_BASE_URL}/profile',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            user_id: user.user_id,
-            skills: skillList,
-            experience: experience,
-            projects: experience.trim()
-              ? [experience.trim()]
-              : [],
-          }),
+      const profileResponse = await fetch(`${API_BASE_URL}/profile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      )
+        body: JSON.stringify({
+          user_id: user.user_id,
+          skills: skillList,
+          experience: experience,
+          projects: experience.trim()
+            ? [experience.trim()]
+            : [],
+        }),
+      })
 
       if (!profileResponse.ok) {
         const errorText = await profileResponse.text()
@@ -137,7 +139,7 @@ function App() {
 
       if (error instanceof TypeError) {
         alert(
-          'Frontend не может подключиться к Backend. Проверь, запущен ли FastAPI на ${API_BASE_URL}',
+          `Frontend не может подключиться к Backend. Проверь адрес: ${API_BASE_URL}`,
         )
       } else {
         alert(
