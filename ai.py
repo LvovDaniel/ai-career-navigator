@@ -183,10 +183,29 @@ def save_profile(profile: Profile):
     with get_db() as conn:
         with conn.cursor() as cur:
 
+            # Проверяем существование пользователя
+            cur.execute(
+                """
+                SELECT id
+                FROM users
+                WHERE id = %s
+                """,
+                (profile.user_id,)
+            )
+
+            user = cur.fetchone()
+
+            if not user:
+                return {
+                    "error": "Пользователь не найден"
+                }
+
+            # Сохраняем опыт в resume.
+            # Целевую профессию НЕ изменяем.
             cur.execute(
                 """
                 UPDATE users
-                SET goal = %s
+                SET resume = %s
                 WHERE id = %s
                 """,
                 (
@@ -195,10 +214,41 @@ def save_profile(profile: Profile):
                 )
             )
 
+            # Удаляем старые проекты пользователя,
+            # чтобы они не дублировались.
+            cur.execute(
+                """
+                DELETE FROM projects
+                WHERE user_id = %s
+                """,
+                (profile.user_id,)
+            )
+
+            # Сохраняем новые проекты
+            for project in profile.projects:
+
+                project = project.strip()
+
+                if not project:
+                    continue
+
+                cur.execute(
+                    """
+                    INSERT INTO projects
+                    (user_id, name, description)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (
+                        profile.user_id,
+                        project[:100],
+                        project
+                    )
+                )
+
             conn.commit()
 
     return {
-        "message": "Профиль сохранён"
+        "message": "Профиль и проекты сохранены"
     }
 
 
@@ -356,10 +406,6 @@ def get_real_vacancies(
         "area": 1
     }
 
-    # ==========================================
-    # ПЫТАЕМСЯ ПОЛУЧИТЬ РЕАЛЬНЫЕ ВАКАНСИИ
-    # ==========================================
-
     try:
 
         response = requests.get(
@@ -373,7 +419,6 @@ def get_real_vacancies(
             f"HH status: {response.status_code}"
         )
 
-        # HH ответил успешно
         if response.status_code == 200:
 
             data = response.json()
@@ -412,7 +457,6 @@ def get_real_vacancies(
                 "vacancies": vacancies
             }
 
-        # HH вернул ошибку
         print(
             f"HH вернул ошибку: {response.status_code}"
         )
@@ -436,9 +480,9 @@ def get_real_vacancies(
         )
 
 
-    # ==========================================
+    # =========================
     # FALLBACK — ДЕМО-ВАКАНСИИ
-    # ==========================================
+    # =========================
 
     try:
 
@@ -514,9 +558,9 @@ def get_vacancies():
 @app.post("/analyze")
 def analyze(user_id: int):
 
-    # ==========================================
+    # =========================
     # USER
-    # ==========================================
+    # =========================
 
     user = get_profile(user_id)
 
@@ -524,16 +568,16 @@ def analyze(user_id: int):
         return user
 
 
-    # ==========================================
+    # =========================
     # SKILLS
-    # ==========================================
+    # =========================
 
     skills = get_skills(user_id)
 
 
-    # ==========================================
+    # =========================
     # PROJECTS
-    # ==========================================
+    # =========================
 
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -558,16 +602,16 @@ def analyze(user_id: int):
     ]
 
 
-    # ==========================================
+    # =========================
     # VACANCIES
-    # ==========================================
+    # =========================
 
     vacancies = get_vacancies()
 
 
-    # ==========================================
+    # =========================
     # AI PROMPT
-    # ==========================================
+    # =========================
 
     prompt = f"""
 Ты — AI Career Navigator.
@@ -691,9 +735,9 @@ Roadmap должен двигаться от текущего уровня
 """
 
 
-    # ==========================================
+    # =========================
     # OPENAI
-    # ==========================================
+    # =========================
 
     try:
 
@@ -714,9 +758,9 @@ Roadmap должен двигаться от текущего уровня
         }
 
 
-    # ==========================================
+    # =========================
     # SAVE ROADMAP
-    # ==========================================
+    # =========================
 
     with get_db() as conn:
         with conn.cursor() as cur:
