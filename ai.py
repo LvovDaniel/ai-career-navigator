@@ -1,18 +1,52 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
 import psycopg
 from psycopg.types.json import Json
 from dotenv import load_dotenv
 from openai import OpenAI
+
 import os
+import requests
 import json
+
+
+# =========================
+# ENV
+# =========================
 
 load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY")
+)
 
-app = FastAPI()
 
+# =========================
+# FASTAPI
+# =========================
+
+app = FastAPI(
+    title="AI Career Navigator",
+    version="1.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# =========================
+# DATABASE
+# =========================
 
 def get_db():
     return psycopg.connect(
@@ -25,13 +59,14 @@ def get_db():
 
 
 # =========================
-# МОДЕЛИ
+# MODELS
 # =========================
 
 class User(BaseModel):
     name: str
     email: str
     goal: str
+    resume: str = ""
 
 
 class Profile(BaseModel):
@@ -48,7 +83,7 @@ class UserSkill(BaseModel):
 
 
 # =========================
-# ГЛАВНАЯ
+# ROOT
 # =========================
 
 @app.get("/")
@@ -59,7 +94,7 @@ def root():
 
 
 # =========================
-# ПРОВЕРКА СЕРВЕРА
+# HEALTH
 # =========================
 
 @app.get("/health")
@@ -70,64 +105,61 @@ def health():
 
 
 # =========================
-# СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ
+# USERS
 # =========================
 
 @app.post("/users")
 def create_user(user: User):
 
-    conn = get_db()
+    with get_db() as conn:
+        with conn.cursor() as cur:
 
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO users (name, email, goal)
-            VALUES (%s, %s, %s)
-            RETURNING id;
-            """,
-            (
-                user.name,
-                user.email,
-                user.goal
+            cur.execute(
+                """
+                INSERT INTO users
+                (name, email, goal, resume)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    user.name,
+                    user.email,
+                    user.goal,
+                    user.resume
+                )
             )
-        )
 
-        user_id = cur.fetchone()[0]
+            user_id = cur.fetchone()[0]
 
-    conn.commit()
-    conn.close()
+            conn.commit()
 
     return {
-        "message": "Пользователь создан",
-        "user_id": user_id,
-        "user": user
+        "user_id": user_id
     }
 
 
 # =========================
-# ПОЛУЧИТЬ ПРОФИЛЬ
+# GET PROFILE
 # =========================
 
 @app.get("/profile/{user_id}")
 def get_profile(user_id: int):
 
-    conn = get_db()
+    with get_db() as conn:
+        with conn.cursor() as cur:
 
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT id, name, email, resume, goal
-            FROM users
-            WHERE id = %s;
-            """,
-            (user_id,)
-        )
+            cur.execute(
+                """
+                SELECT id, name, email, goal, resume
+                FROM users
+                WHERE id = %s
+                """,
+                (user_id,)
+            )
 
-        user = cur.fetchone()
+            user = cur.fetchone()
 
-    conn.close()
-
-    if user is None:
+    if not user:
         return {
             "error": "Пользователь не найден"
         }
@@ -136,587 +168,612 @@ def get_profile(user_id: int):
         "id": user[0],
         "name": user[1],
         "email": user[2],
-        "resume": user[3],
-        "goal": user[4]
+        "goal": user[3],
+        "resume": user[4]
     }
 
 
 # =========================
-# СОХРАНИТЬ ПРОФИЛЬ
+# SAVE PROFILE
 # =========================
 
 @app.post("/profile")
-def create_profile(profile: Profile):
+def save_profile(profile: Profile):
 
-    conn = get_db()
+    with get_db() as conn:
+        with conn.cursor() as cur:
 
-    with conn.cursor() as cur:
-
-        for project in profile.projects:
             cur.execute(
                 """
-                INSERT INTO projects (user_id, name, description)
-                VALUES (%s, %s, %s);
+                UPDATE users
+                SET goal = %s
+                WHERE id = %s
                 """,
                 (
-                    profile.user_id,
-                    project,
-                    ""
+                    profile.experience,
+                    profile.user_id
                 )
             )
 
-    conn.commit()
-    conn.close()
+            conn.commit()
 
     return {
-        "message": "Профиль сохранён",
-        "profile": profile
+        "message": "Профиль сохранён"
     }
 
 
 # =========================
-# ДОБАВИТЬ НАВЫК
+# ADD SKILL
 # =========================
 
 @app.post("/skills")
-def add_skill(user_skill: UserSkill):
+def add_skill(skill: UserSkill):
 
-    if user_skill.level < 1 or user_skill.level > 5:
+    if skill.level < 1 or skill.level > 5:
         return {
             "error": "Уровень навыка должен быть от 1 до 5"
         }
 
-    conn = get_db()
+    with get_db() as conn:
+        with conn.cursor() as cur:
 
-    with conn.cursor() as cur:
-
-        cur.execute(
-            """
-            INSERT INTO skills (name)
-            VALUES (%s)
-            ON CONFLICT (name) DO NOTHING
-            RETURNING id;
-            """,
-            (user_skill.skill,)
-        )
-
-        result = cur.fetchone()
-
-        if result:
-            skill_id = result[0]
-        else:
             cur.execute(
                 """
-                SELECT id
-                FROM skills
-                WHERE name = %s;
+                INSERT INTO skills (name)
+                VALUES (%s)
+                ON CONFLICT (name)
+                DO UPDATE SET name = EXCLUDED.name
+                RETURNING id
                 """,
-                (user_skill.skill,)
+                (skill.skill,)
             )
 
             skill_id = cur.fetchone()[0]
 
-        cur.execute(
-            """
-            INSERT INTO user_skills (user_id, skill_id, level)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (user_id, skill_id)
-            DO UPDATE SET level = EXCLUDED.level;
-            """,
-            (
-                user_skill.user_id,
-                skill_id,
-                user_skill.level
+            cur.execute(
+                """
+                INSERT INTO user_skills
+                (user_id, skill_id, level)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, skill_id)
+                DO UPDATE SET level = EXCLUDED.level
+                """,
+                (
+                    skill.user_id,
+                    skill_id,
+                    skill.level
+                )
             )
-        )
 
-    conn.commit()
-    conn.close()
+            conn.commit()
 
     return {
         "message": "Навык сохранён",
-        "skill": user_skill.skill,
-        "level": user_skill.level
+        "skill": skill.skill,
+        "level": skill.level
     }
 
 
 # =========================
-# ПОЛУЧИТЬ НАВЫКИ
+# GET SKILLS
 # =========================
 
 @app.get("/skills/{user_id}")
 def get_skills(user_id: int):
 
-    conn = get_db()
+    with get_db() as conn:
+        with conn.cursor() as cur:
 
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT skills.name, user_skills.level
-            FROM user_skills
-            JOIN skills
-                ON skills.id = user_skills.skill_id
-            WHERE user_skills.user_id = %s;
-            """,
-            (user_id,)
-        )
+            cur.execute(
+                """
+                SELECT
+                    skills.name,
+                    user_skills.level
+                FROM user_skills
+                JOIN skills
+                    ON skills.id = user_skills.skill_id
+                WHERE user_skills.user_id = %s
+                """,
+                (user_id,)
+            )
 
-        skills = cur.fetchall()
+            rows = cur.fetchall()
 
-    conn.close()
-
-    return {
-        "user_id": user_id,
-        "skills": [
-            {
-                "name": skill[0],
-                "level": skill[1]
-            }
-            for skill in skills
-        ]
-    }
+    return [
+        {
+            "name": row[0],
+            "level": row[1]
+        }
+        for row in rows
+    ]
 
 
 # =========================
-# ПОЛНЫЙ ПРОФИЛЬ
+# FULL PROFILE
 # =========================
 
 @app.get("/profile/full/{user_id}")
 def get_full_profile(user_id: int):
 
-    conn = get_db()
+    user = get_profile(user_id)
 
-    with conn.cursor() as cur:
+    if "error" in user:
+        return user
 
-        cur.execute(
-            """
-            SELECT id, name, email, resume, goal
-            FROM users
-            WHERE id = %s;
-            """,
-            (user_id,)
-        )
+    skills = get_skills(user_id)
 
-        user = cur.fetchone()
+    with get_db() as conn:
+        with conn.cursor() as cur:
 
-        if user is None:
-            conn.close()
+            cur.execute(
+                """
+                SELECT name, description
+                FROM projects
+                WHERE user_id = %s
+                """,
+                (user_id,)
+            )
 
-            return {
-                "error": "Пользователь не найден"
-            }
-
-        cur.execute(
-            """
-            SELECT skills.name, user_skills.level
-            FROM user_skills
-            JOIN skills
-                ON skills.id = user_skills.skill_id
-            WHERE user_skills.user_id = %s;
-            """,
-            (user_id,)
-        )
-
-        skills = cur.fetchall()
-
-        cur.execute(
-            """
-            SELECT name, description
-            FROM projects
-            WHERE user_id = %s;
-            """,
-            (user_id,)
-        )
-
-        projects = cur.fetchall()
-
-    conn.close()
+            projects = [
+                {
+                    "name": row[0],
+                    "description": row[1]
+                }
+                for row in cur.fetchall()
+            ]
 
     return {
-        "id": user[0],
-        "name": user[1],
-        "email": user[2],
-        "resume": user[3],
-        "goal": user[4],
-
-        "skills": [
-            {
-                "name": skill[0],
-                "level": skill[1]
-            }
-            for skill in skills
-        ],
-
-        "projects": [
-            {
-                "name": project[0],
-                "description": project[1]
-            }
-            for project in projects
-        ]
+        "user": user,
+        "skills": skills,
+        "projects": projects
     }
 
 
 # =========================
-# ПОЛУЧИТЬ ВАКАНСИИ
+# REAL VACANCIES
+# =========================
+
+@app.get("/vacancies/real")
+def get_real_vacancies(
+    query: str = "Backend Developer"
+):
+
+    url = "https://api.hh.ru/vacancies"
+
+    headers = {
+        "HH-User-Agent": (
+            "AI Career Navigator/1.0 "
+            "(lvovdaniil902@gmail.com)"
+        ),
+        "User-Agent": "AI Career Navigator/1.0",
+        "Accept": "application/json"
+    }
+
+    params = {
+        "text": query,
+        "per_page": 10,
+        "page": 0,
+        "area": 1
+    }
+
+    # ==========================================
+    # ПЫТАЕМСЯ ПОЛУЧИТЬ РЕАЛЬНЫЕ ВАКАНСИИ
+    # ==========================================
+
+    try:
+
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=5
+        )
+
+        print(
+            f"HH status: {response.status_code}"
+        )
+
+        # HH ответил успешно
+        if response.status_code == 200:
+
+            data = response.json()
+
+            vacancies = []
+
+            for item in data.get("items", []):
+
+                employer = item.get("employer") or {}
+                area = item.get("area") or {}
+
+                vacancies.append({
+                    "id": item.get("id"),
+                    "title": item.get("name"),
+                    "company": employer.get(
+                        "name",
+                        "Не указана"
+                    ),
+                    "url": item.get(
+                        "alternate_url"
+                    ),
+                    "salary": item.get(
+                        "salary"
+                    ),
+                    "area": area.get(
+                        "name",
+                        "Не указано"
+                    ),
+                    "source": "hh.ru"
+                })
+
+            return {
+                "query": query,
+                "count": len(vacancies),
+                "source": "hh.ru",
+                "vacancies": vacancies
+            }
+
+        # HH вернул ошибку
+        print(
+            f"HH вернул ошибку: {response.status_code}"
+        )
+
+    except requests.Timeout:
+
+        print(
+            "HH: запрос превысил 5 секунд"
+        )
+
+    except requests.RequestException as e:
+
+        print(
+            f"HH RequestException: {e}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"HH неизвестная ошибка: {e}"
+        )
+
+
+    # ==========================================
+    # FALLBACK — ДЕМО-ВАКАНСИИ
+    # ==========================================
+
+    try:
+
+        demo_vacancies = get_vacancies()
+
+        return {
+            "query": query,
+            "count": len(demo_vacancies),
+            "source": "demo",
+            "message": (
+                "Реальные вакансии временно "
+                "недоступны. Используются "
+                "демонстрационные."
+            ),
+            "vacancies": demo_vacancies
+        }
+
+    except Exception as e:
+
+        return {
+            "query": query,
+            "count": 0,
+            "source": "none",
+            "error": "Не удалось получить вакансии",
+            "details": str(e),
+            "vacancies": []
+        }
+
+
+# =========================
+# DEMO VACANCIES
 # =========================
 
 @app.get("/vacancies")
 def get_vacancies():
 
-    conn = get_db()
+    with get_db() as conn:
+        with conn.cursor() as cur:
 
-    with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    title,
+                    company,
+                    description,
+                    required_skills
+                FROM vacancies
+                """
+            )
 
-        cur.execute(
-            """
-            SELECT id, title, company, description, required_skills
-            FROM vacancies;
-            """
-        )
+            rows = cur.fetchall()
 
-        vacancies = cur.fetchall()
+    vacancies = []
 
-    conn.close()
+    for row in rows:
 
-    return {
-        "vacancies": [
-            {
-                "id": vacancy[0],
-                "title": vacancy[1],
-                "company": vacancy[2],
-                "description": vacancy[3],
-                "required_skills": vacancy[4]
-            }
-            for vacancy in vacancies
-        ]
-    }
+        vacancies.append({
+            "id": row[0],
+            "title": row[1],
+            "company": row[2],
+            "description": row[3],
+            "required_skills": row[4]
+        })
+
+    return vacancies
 
 
 # =========================
-# АНАЛИЗ ПРОФИЛЯ С AI
+# AI ANALYSIS
 # =========================
 
 @app.post("/analyze")
-def analyze_profile(user_id: int):
+def analyze(user_id: int):
 
-    # =========================
-    # ПОЛУЧАЕМ ДАННЫЕ ИЗ БД
-    # =========================
+    # ==========================================
+    # USER
+    # ==========================================
 
-    conn = get_db()
+    user = get_profile(user_id)
 
-    with conn.cursor() as cur:
+    if "error" in user:
+        return user
 
-        # Пользователь
-        cur.execute(
-            """
-            SELECT name, resume, goal
-            FROM users
-            WHERE id = %s;
-            """,
-            (user_id,)
-        )
 
-        user = cur.fetchone()
+    # ==========================================
+    # SKILLS
+    # ==========================================
 
-        if user is None:
-            conn.close()
+    skills = get_skills(user_id)
 
-            return {
-                "error": "Пользователь не найден"
-            }
 
-        name = user[0]
-        resume = user[1] or ""
-        goal = user[2]
+    # ==========================================
+    # PROJECTS
+    # ==========================================
 
-        # Навыки
-        cur.execute(
-            """
-            SELECT skills.name, user_skills.level
-            FROM user_skills
-            JOIN skills
-                ON skills.id = user_skills.skill_id
-            WHERE user_skills.user_id = %s;
-            """,
-            (user_id,)
-        )
+    with get_db() as conn:
+        with conn.cursor() as cur:
 
-        skills = cur.fetchall()
+            cur.execute(
+                """
+                SELECT name, description
+                FROM projects
+                WHERE user_id = %s
+                """,
+                (user_id,)
+            )
 
-        # Проекты
-        cur.execute(
-            """
-            SELECT name, description
-            FROM projects
-            WHERE user_id = %s;
-            """,
-            (user_id,)
-        )
+            project_rows = cur.fetchall()
 
-        projects = cur.fetchall()
-
-        # Вакансии
-        cur.execute(
-            """
-            SELECT id, title, company, description, required_skills
-            FROM vacancies;
-            """
-        )
-
-        vacancies = cur.fetchall()
-
-    conn.close()
-
-    # =========================
-    # ПОДГОТОВКА ДАННЫХ
-    # =========================
-
-    user_skills = [
+    projects = [
         {
-            "name": skill[0],
-            "level": skill[1]
+            "name": row[0],
+            "description": row[1]
         }
-        for skill in skills
+        for row in project_rows
     ]
 
-    user_projects = [
-        {
-            "name": project[0],
-            "description": project[1]
-        }
-        for project in projects
-    ]
 
-    vacancy_data = [
-        {
-            "id": vacancy[0],
-            "title": vacancy[1],
-            "company": vacancy[2],
-            "description": vacancy[3],
-            "required_skills": vacancy[4]
-        }
-        for vacancy in vacancies
-    ]
+    # ==========================================
+    # VACANCIES
+    # ==========================================
 
-    # =========================
-    # ФОРМИРУЕМ ЗАПРОС К AI
-    # =========================
+    vacancies = get_vacancies()
+
+
+    # ==========================================
+    # AI PROMPT
+    # ==========================================
 
     prompt = f"""
-Ты карьерный консультант системы AI Career Navigator.
+Ты — AI Career Navigator.
 
-Проанализируй профиль пользователя и составь персональный карьерный roadmap.
+Проанализируй профиль пользователя
+и составь персональный карьерный roadmap.
 
-ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ
-
-Имя:
-{name}
+ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ:
 
 Целевая профессия:
-{goal}
+{user.get("goal", "")}
 
 Резюме:
-{resume}
+{user.get("resume", "")}
 
 Навыки:
-{user_skills}
+{json.dumps(skills, ensure_ascii=False)}
 
 Проекты:
-{user_projects}
+{json.dumps(projects, ensure_ascii=False)}
 
-Доступные вакансии:
-{vacancy_data}
-
-
-ЗАДАЧА
-
-Определи:
-
-1. Примерный текущий уровень пользователя.
-2. Сильные стороны.
-3. Недостающие навыки.
-4. Что нужно изучить.
-5. Практический проект.
-6. Подходящие вакансии.
-7. Следующий шаг.
-8. Персональный roadmap.
+Вакансии:
+{json.dumps(vacancies, ensure_ascii=False)}
 
 
 ВАЖНО
 
+Навыки из раздела "Навыки" являются навыками,
+которые пользователь указал как имеющиеся.
+
+Не считай такой навык отсутствующим только потому,
+что он не упомянут в резюме или проектах.
+
+Используй указанное пользователем значение level
+как текущий уровень навыка.
+
+Например:
+
+если в профиле есть:
+
+{{"name": "Python", "level": 3}}
+
+то Python является текущим навыком пользователя
+с уровнем 3.
+
+В этом случае Python нельзя помещать
+в missing_skills как отсутствующий навык.
+
+Можно указать его как навык, который нужно улучшить,
+если требуемый уровень выше текущего.
+
 Не придумывай навыки, которых нет в профиле.
 
-Если информации недостаточно, укажи это.
+Если информации недостаточно — укажи это.
 
 Уровень навыков оценивай по шкале от 1 до 5.
 
 Для вакансий рассчитай примерный процент соответствия.
 
-Roadmap должен двигаться от текущего уровня пользователя к целевой профессии.
+Roadmap должен двигаться от текущего уровня
+пользователя к целевой профессии.
 
 
-ФОРМАТ ОТВЕТА
-
-Верни ТОЛЬКО валидный JSON.
-
-Не используй Markdown.
-
-Не добавляй текст до или после JSON.
+ОТВЕТ ВЕРНИ ТОЛЬКО В JSON.
 
 Структура:
 
 {{
-    "target_role": "Backend Developer",
+    "target_role": "...",
 
-    "current_level": "Junior",
+    "current_level": "...",
 
     "strengths": [
-        "сильная сторона"
+        {{
+            "skill": "...",
+            "level": 1
+        }}
     ],
 
     "missing_skills": [
         {{
-            "skill": "Python",
-            "current_level": 3,
-            "required_level": 5,
-            "reason": "почему навык нужно улучшить"
+            "skill": "...",
+            "current_level": 1,
+            "required_level": 4
         }}
     ],
 
     "learning": [
         {{
-            "skill": "Python",
-            "recommendation": "что изучить"
+            "skill": "...",
+            "description": "...",
+            "priority": "high"
         }}
     ],
 
     "recommended_project": {{
-        "name": "Название проекта",
-        "description": "Описание проекта",
-        "skills": [
-            "Python",
-            "FastAPI"
-        ]
+        "name": "...",
+        "description": "...",
+        "technologies": []
     }},
 
     "vacancies": [
         {{
-            "id": 1,
-            "title": "Junior Backend Developer",
-            "company": "Tech Company",
-            "match_percent": 75,
-            "missing_skills": [
-                "Git"
-            ]
+            "title": "...",
+            "company": "...",
+            "match_percent": 0,
+            "missing_skills": []
         }}
     ],
 
-    "next_step": "Что пользователю сделать следующим",
+    "next_step": "...",
 
     "roadmap": [
         {{
             "step": 1,
-            "title": "Название этапа",
-            "description": "Что нужно сделать"
-        }},
-        {{
-            "step": 2,
-            "title": "Следующий этап",
-            "description": "Что нужно сделать"
+            "title": "...",
+            "description": "..."
         }}
     ]
 }}
 """
 
-    # =========================
-    # ЗАПРОС К OPENAI
-    # =========================
 
-    response = client.responses.create(
-        model="gpt-5.6-luna",
-        input=prompt
-    )
-
-    ai_text = response.output_text
-
-    # =========================
-    # ПРЕОБРАЗОВАНИЕ JSON
-    # =========================
+    # ==========================================
+    # OPENAI
+    # ==========================================
 
     try:
-        result = json.loads(ai_text)
 
-    except json.JSONDecodeError:
-
-        return {
-            "error": "AI вернул некорректный JSON",
-            "raw_response": ai_text
-        }
-
-    # =========================
-    # СОХРАНЯЕМ ROADMAP
-    # =========================
-
-    conn = get_db()
-
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO roadmaps (user_id, target_role, result)
-            VALUES (%s, %s, %s);
-            """,
-            (
-                user_id,
-                goal,
-                Json(result)
-            )
+        response = client.responses.create(
+            model="gpt-5.6-luna",
+            input=prompt
         )
 
-    conn.commit()
-    conn.close()
+        result_text = response.output_text
 
-    # =========================
-    # ВОЗВРАЩАЕМ РЕЗУЛЬТАТ
-    # =========================
+        result = json.loads(result_text)
+
+    except Exception as e:
+
+        return {
+            "error": "Ошибка AI анализа",
+            "details": str(e)
+        }
+
+
+    # ==========================================
+    # SAVE ROADMAP
+    # ==========================================
+
+    with get_db() as conn:
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                INSERT INTO roadmaps
+                (user_id, target_role, result)
+                VALUES (%s, %s, %s)
+                """,
+                (
+                    user_id,
+                    result.get("target_role"),
+                    Json(result)
+                )
+            )
+
+            conn.commit()
+
 
     return result
 
 
 # =========================
-# ПОЛУЧИТЬ ROADMAP
+# GET ROADMAP
 # =========================
 
 @app.get("/roadmap/{user_id}")
 def get_roadmap(user_id: int):
 
-    conn = get_db()
+    with get_db() as conn:
+        with conn.cursor() as cur:
 
-    with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    target_role,
+                    result
+                FROM roadmaps
+                WHERE user_id = %s
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (user_id,)
+            )
 
-        cur.execute(
-            """
-            SELECT id, target_role, result
-            FROM roadmaps
-            WHERE user_id = %s
-            ORDER BY id DESC
-            LIMIT 1;
-            """,
-            (user_id,)
-        )
+            row = cur.fetchone()
 
-        roadmap = cur.fetchone()
+    if not row:
 
-    conn.close()
-
-    if roadmap is None:
         return {
             "error": "Roadmap пока не создан"
         }
 
     return {
-        "id": roadmap[0],
-        "target_role": roadmap[1],
-        "result": roadmap[2]
+        "id": row[0],
+        "target_role": row[1],
+        "result": row[2]
     }
