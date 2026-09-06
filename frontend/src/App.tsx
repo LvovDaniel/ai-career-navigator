@@ -133,7 +133,6 @@ function App() {
       console.log('AI RESULT:', data)
 
       setResult(data)
-
     } catch (error) {
       console.error('ОШИБКА:', error)
 
@@ -407,51 +406,61 @@ function App() {
               <div className="skills-list">
 
                 {result.missing_skills?.map(
-                  (item: any, index: number) => (
+                  (item: any, index: number) => {
 
-                    <div
-                      className="skill-item"
-                      key={index}
-                    >
+                    const currentLevel =
+                      item.current_level ?? 0
 
-                      <div className="skill-header">
+                    const requiredLevel =
+                      item.required_level ?? 5
 
-                        <strong>
-                          {item.skill}
-                        </strong>
+                    const progress =
+                      Math.min(
+                        100,
+                        (currentLevel /
+                          requiredLevel) *
+                          100,
+                      )
 
-                        <span>
-                          {item.current_level} /{' '}
-                          {item.required_level}
-                        </span>
+                    return (
+                      <div
+                        className="skill-item"
+                        key={index}
+                      >
+
+                        <div className="skill-header">
+
+                          <strong>
+                            {item.skill}
+                          </strong>
+
+                          <span>
+                            {currentLevel} /{' '}
+                            {requiredLevel}
+                          </span>
+
+                        </div>
+
+
+                        <div className="progress">
+
+                          <div
+                            className="progress-bar"
+                            style={{
+                              width: `${progress}%`,
+                            }}
+                          />
+
+                        </div>
+
+
+                        <p>
+                          {item.reason}
+                        </p>
 
                       </div>
-
-
-                      <div className="progress">
-
-                        <div
-                          className="progress-bar"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              (item.current_level /
-                                item.required_level) *
-                                100,
-                            )}%`,
-                          }}
-                        />
-
-                      </div>
-
-
-                      <p>
-                        {item.reason}
-                      </p>
-
-                    </div>
-
-                  ),
+                    )
+                  },
                 )}
 
               </div>
@@ -482,7 +491,10 @@ function App() {
               <div className="tags">
 
                 {result.recommended_project?.technologies?.map(
-                  (technology: string, index: number) => (
+                  (
+                    technology: string,
+                    index: number,
+                  ) => (
 
                     <span key={index}>
                       {technology}
@@ -514,7 +526,10 @@ function App() {
 
                       <div
                         className="vacancy-card"
-                        key={vacancy.id || vacancy.title}
+                        key={
+                          vacancy.id ||
+                          vacancy.title
+                        }
                       >
 
                         <div className="vacancy-header">
