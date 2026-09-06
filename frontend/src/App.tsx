@@ -29,7 +29,7 @@ function App() {
       // CREATE USER
       // =========================
 
-      const userResponse = await fetch('${API_BASE_URL}/users', {
+     const userResponse = await fetch(`${API_BASE_URL}/users`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
