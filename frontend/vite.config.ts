@@ -4,4 +4,7 @@ import { defineConfig } from 'vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  preview: {
+    allowedHosts: ['delightful-adaptation-production-fd1f.up.railway.app'],
+  },
 })
