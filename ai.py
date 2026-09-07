@@ -1867,7 +1867,38 @@ matched skills / required skills * 100
         result["missing_skills"] = (
             filtered_missing
         )
+        # =================================================
+# FORCE DEMO VACANCY MATCH
+# =================================================
 
+if hh_data.get("source") == "demo":
+
+    result["vacancies"] = [
+        {
+            "id": vacancy.get("id"),
+            "title": vacancy.get("title"),
+            "company": vacancy.get("company"),
+            "description": vacancy.get("description"),
+            "required_skills": vacancy.get(
+                "required_skills",
+                []
+            ),
+            "match_percent": vacancy.get(
+                "match_percent",
+                0
+            ),
+            "matched_skills": vacancy.get(
+                "matched_skills",
+                []
+            ),
+            "missing_skills": vacancy.get(
+                "missing_skills",
+                []
+            ),
+            "url": vacancy.get("url", "")
+        }
+        for vacancy in vacancies_data
+    ]
         # =================================================
         # CAREER MATCH
         # =================================================
