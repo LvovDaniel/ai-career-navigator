@@ -181,9 +181,7 @@ class UserSkill(BaseModel):
 
 class SkillsUpdate(BaseModel):
     user_id: int
-    skills: list[UserSkill] = Field(
-        default_factory=list
-    )
+    skills: list[UserSkill] = Field(default_factory=list)
 
 
 # =========================================================
@@ -195,19 +193,28 @@ def validate_profile_input(
     skills: list[dict],
     experience: str
 ):
+    """
+    Основная проверка пользовательского ввода.
+
+    Главное правило:
+    профессия должна находиться в AVAILABLE_PROFESSIONS.
+
+    Дополнительно проверяются навыки и опыт.
+    """
+
     goal = (goal or "").strip()
     experience = (experience or "").strip()
 
-    # -----------------------------------------------------
+    # =====================================================
     # ПРОФЕССИЯ
-    # -----------------------------------------------------
+    # =====================================================
 
     if not is_valid_profession(goal):
         return False
 
-    # -----------------------------------------------------
-    # НАВЫКИ И ОПЫТ
-    # -----------------------------------------------------
+    # =====================================================
+    # ПРОВЕРКА НАВЫКОВ И ОПЫТА
+    # =====================================================
 
     fields = [
         experience,
@@ -224,9 +231,11 @@ def validate_profile_input(
 
     for value in fields:
 
+        # Пустые поля разрешены
         if not value:
             continue
 
+        # Должны быть буквы
         if not any(
             char.isalpha()
             for char in value
@@ -239,9 +248,9 @@ def validate_profile_input(
             if char.isalnum()
         )
 
-        # -------------------------------------------------
+        # =================================================
         # ОДИН СИМВОЛ 6 РАЗ ПОДРЯД
-        # -------------------------------------------------
+        # =================================================
 
         if len(cleaned) >= 6:
 
@@ -289,7 +298,8 @@ def get_professions():
         "count": len(
             AVAILABLE_PROFESSIONS
         ),
-        "professions": AVAILABLE_PROFESSIONS
+        "professions":
+            AVAILABLE_PROFESSIONS
     }
 
 
@@ -300,6 +310,7 @@ def get_professions():
 @app.post("/users")
 def create_user(user: User):
 
+    # Проверяем профессию сразу
     if not is_valid_profession(
         user.goal
     ):
@@ -342,7 +353,7 @@ def create_user(user: User):
 
         print(
             "CREATE USER ERROR:",
-            repr(e)
+            e
         )
 
         raise HTTPException(
@@ -402,7 +413,7 @@ def get_profile(user_id: int):
 
         print(
             "GET PROFILE ERROR:",
-            repr(e)
+            e
         )
 
         raise HTTPException(
@@ -418,6 +429,7 @@ def get_profile(user_id: int):
 @app.post("/profile")
 def save_profile(profile: Profile):
 
+    # Проверяем профессию ДО сохранения
     if not is_valid_profession(
         profile.goal
     ):
@@ -435,9 +447,9 @@ def save_profile(profile: Profile):
 
             with conn.cursor() as cur:
 
-                # -------------------------------------------------
+                # -----------------------------------------
                 # Проверяем пользователя
-                # -------------------------------------------------
+                # -----------------------------------------
 
                 cur.execute(
                     """
@@ -457,9 +469,9 @@ def save_profile(profile: Profile):
                         detail="Пользователь не найден"
                     )
 
-                # -------------------------------------------------
-                # Обновляем профиль
-                # -------------------------------------------------
+                # -----------------------------------------
+                # Update profile
+                # -----------------------------------------
 
                 cur.execute(
                     """
@@ -476,9 +488,9 @@ def save_profile(profile: Profile):
                     )
                 )
 
-                # -------------------------------------------------
-                # Сохраняем проекты
-                # -------------------------------------------------
+                # -----------------------------------------
+                # Save projects
+                # -----------------------------------------
 
                 for project in profile.projects:
 
@@ -514,7 +526,7 @@ def save_profile(profile: Profile):
 
         print(
             "SAVE PROFILE ERROR:",
-            repr(e)
+            e
         )
 
         raise HTTPException(
@@ -532,9 +544,7 @@ def add_skill(skill: UserSkill):
 
     try:
 
-        skill_name = (
-            skill.skill or ""
-        ).strip()
+        skill_name = skill.skill.strip()
 
         if not skill_name:
 
@@ -547,9 +557,9 @@ def add_skill(skill: UserSkill):
 
             with conn.cursor() as cur:
 
-                # -------------------------------------------------
+                # -----------------------------------------
                 # Проверяем пользователя
-                # -------------------------------------------------
+                # -----------------------------------------
 
                 cur.execute(
                     """
@@ -560,23 +570,24 @@ def add_skill(skill: UserSkill):
                     (skill.user_id,)
                 )
 
-                if cur.fetchone() is None:
+                user = cur.fetchone()
+
+                if not user:
 
                     raise HTTPException(
                         status_code=404,
                         detail="Пользователь не найден"
                     )
 
-                # -------------------------------------------------
-                # Ищем навык
-                # -------------------------------------------------
+                # -----------------------------------------
+                # Find skill
+                # -----------------------------------------
 
                 cur.execute(
                     """
                     SELECT id
                     FROM skills
-                    WHERE LOWER(name) = LOWER(%s)
-                    LIMIT 1
+                    WHERE name = %s
                     """,
                     (skill_name,)
                 )
@@ -601,66 +612,25 @@ def add_skill(skill: UserSkill):
 
                     skill_id = cur.fetchone()[0]
 
-                # -------------------------------------------------
-                # Проверяем существующую связь
-                # -------------------------------------------------
+                # -----------------------------------------
+                # Save user skill
+                # -----------------------------------------
 
                 cur.execute(
                     """
-                    SELECT id
-                    FROM user_skills
-                    WHERE user_id = %s
-                      AND skill_id = %s
-                    LIMIT 1
+                    INSERT INTO user_skills
+                    (user_id, skill_id, level)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id, skill_id)
+                    DO UPDATE SET
+                        level = EXCLUDED.level
                     """,
                     (
                         skill.user_id,
-                        skill_id
+                        skill_id,
+                        skill.level
                     )
                 )
-
-                existing = cur.fetchone()
-
-                if existing:
-
-                    # ---------------------------------------------
-                    # Обновляем уровень
-                    # ---------------------------------------------
-
-                    cur.execute(
-                        """
-                        UPDATE user_skills
-                        SET level = %s
-                        WHERE id = %s
-                        """,
-                        (
-                            skill.level,
-                            existing[0]
-                        )
-                    )
-
-                else:
-
-                    # ---------------------------------------------
-                    # Создаём связь
-                    # ---------------------------------------------
-
-                    cur.execute(
-                        """
-                        INSERT INTO user_skills
-                        (
-                            user_id,
-                            skill_id,
-                            level
-                        )
-                        VALUES (%s, %s, %s)
-                        """,
-                        (
-                            skill.user_id,
-                            skill_id,
-                            skill.level
-                        )
-                    )
 
         return {
             "status": "ok",
@@ -675,7 +645,7 @@ def add_skill(skill: UserSkill):
 
         print(
             "ADD SKILL ERROR:",
-            repr(e)
+            e
         )
 
         raise HTTPException(
@@ -693,28 +663,15 @@ def replace_skills(
     user_id: int,
     payload: SkillsUpdate
 ):
-
-    # -----------------------------------------------------
-    # Проверяем ID
-    # -----------------------------------------------------
-
     if payload.user_id != user_id:
-
         raise HTTPException(
             status_code=400,
             detail="user_id не совпадает."
         )
 
     try:
-
         with get_db() as conn:
-
             with conn.cursor() as cur:
-
-                # -------------------------------------------------
-                # Проверяем пользователя
-                # -------------------------------------------------
-
                 cur.execute(
                     """
                     SELECT id
@@ -725,16 +682,14 @@ def replace_skills(
                 )
 
                 if cur.fetchone() is None:
-
                     raise HTTPException(
                         status_code=404,
                         detail="Пользователь не найден."
                     )
 
-                # -------------------------------------------------
-                # Удаляем абсолютно все старые навыки
-                # -------------------------------------------------
-
+                # Полностью заменяем текущий набор навыков.
+                # Старые связи пользователя удаляются,
+                # история roadmap при этом не затрагивается.
                 cur.execute(
                     """
                     DELETE FROM user_skills
@@ -746,37 +701,14 @@ def replace_skills(
                 saved_skills = []
                 seen_skills = set()
 
-                # -------------------------------------------------
-                # Сохраняем текущие навыки
-                # -------------------------------------------------
-
                 for item in payload.skills:
+                    skill_name = item.skill.strip()
+                    normalized_name = skill_name.lower()
 
-                    skill_name = (
-                        item.skill or ""
-                    ).strip()
-
-                    if not skill_name:
+                    if not skill_name or normalized_name in seen_skills:
                         continue
 
-                    normalized_name = (
-                        skill_name.lower()
-                    )
-
-                    # -------------------------------------------------
-                    # Защита от дубликатов
-                    # -------------------------------------------------
-
-                    if normalized_name in seen_skills:
-                        continue
-
-                    seen_skills.add(
-                        normalized_name
-                    )
-
-                    # -------------------------------------------------
-                    # Ищем навык
-                    # -------------------------------------------------
+                    seen_skills.add(normalized_name)
 
                     cur.execute(
                         """
@@ -790,43 +722,30 @@ def replace_skills(
 
                     skill_row = cur.fetchone()
 
-                    # -------------------------------------------------
-                    # Если навыка нет — создаём
-                    # -------------------------------------------------
-
                     if skill_row is None:
-
                         cur.execute(
                             """
-                            INSERT INTO skills
-                            (name)
+                            INSERT INTO skills (name)
                             VALUES (%s)
                             RETURNING id
                             """,
                             (skill_name,)
                         )
-
-                        skill_id = (
-                            cur.fetchone()[0]
-                        )
-
+                        skill_id = cur.fetchone()[0]
                     else:
-
                         skill_id = skill_row[0]
-
-                    # -------------------------------------------------
-                    # Добавляем связь
-                    # -------------------------------------------------
 
                     cur.execute(
                         """
-                        INSERT INTO user_skills
-                        (
+                        INSERT INTO user_skills (
                             user_id,
                             skill_id,
                             level
                         )
                         VALUES (%s, %s, %s)
+                        ON CONFLICT (user_id, skill_id)
+                        DO UPDATE SET
+                            level = EXCLUDED.level
                         """,
                         (
                             user_id,
@@ -835,15 +754,12 @@ def replace_skills(
                         )
                     )
 
-                    saved_skills.append(
-                        {
-                            "skill": skill_name,
-                            "level": item.level
-                        }
-                    )
+                    saved_skills.append({
+                        "skill": skill_name,
+                        "level": item.level
+                    })
 
         return {
-            "status": "ok",
             "user_id": user_id,
             "skills": saved_skills,
             "count": len(saved_skills)
@@ -853,10 +769,9 @@ def replace_skills(
         raise
 
     except Exception as e:
-
         print(
             "REPLACE SKILLS ERROR:",
-            repr(e)
+            e
         )
 
         raise HTTPException(
@@ -906,7 +821,7 @@ def get_skills(user_id: int):
 
         print(
             "GET SKILLS ERROR:",
-            repr(e)
+            e
         )
 
         raise HTTPException(
@@ -928,9 +843,9 @@ def get_full_profile(user_id: int):
 
             with conn.cursor() as cur:
 
-                # -------------------------------------------------
-                # USER
-                # -------------------------------------------------
+                # -----------------------------------------
+                # User
+                # -----------------------------------------
 
                 cur.execute(
                     """
@@ -955,9 +870,9 @@ def get_full_profile(user_id: int):
                         detail="Пользователь не найден"
                     )
 
-                # -------------------------------------------------
-                # SKILLS
-                # -------------------------------------------------
+                # -----------------------------------------
+                # Skills
+                # -----------------------------------------
 
                 cur.execute(
                     """
@@ -968,16 +883,15 @@ def get_full_profile(user_id: int):
                     JOIN skills s
                         ON s.id = us.skill_id
                     WHERE us.user_id = %s
-                    ORDER BY s.name
                     """,
                     (user_id,)
                 )
 
                 skill_rows = cur.fetchall()
 
-                # -------------------------------------------------
-                # PROJECTS
-                # -------------------------------------------------
+                # -----------------------------------------
+                # Projects
+                # -----------------------------------------
 
                 cur.execute(
                     """
@@ -1023,7 +937,7 @@ def get_full_profile(user_id: int):
 
         print(
             "FULL PROFILE ERROR:",
-            repr(e)
+            e
         )
 
         raise HTTPException(
@@ -1186,7 +1100,7 @@ def get_real_vacancies(
 
         print(
             "HH API ERROR:",
-            repr(e)
+            e
         )
 
         demo = get_vacancies()
@@ -1258,7 +1172,7 @@ def analyze(user_id: int):
         ).strip()
 
         # =================================================
-        # ПРОФЕССИЯ
+        # ПРОВЕРЯЕМ ПРОФЕССИЮ
         # =================================================
 
         if not is_valid_profession(goal):
@@ -1322,7 +1236,7 @@ def analyze(user_id: int):
             )
 
         # =================================================
-        # VACANCIES
+        # GET VACANCIES
         # =================================================
 
         hh_data = get_real_vacancies(
@@ -1343,52 +1257,33 @@ def analyze(user_id: int):
             hh_data["source"] = "demo"
 
         # =================================================
-        # EXACT VACANCY MATCH
+        # VACANCIES TEXT
         # =================================================
 
-        user_skill_names = {
-            str(skill["skill"]).strip().lower()
-            for skill in user_skills
-            if str(skill.get("skill", "")).strip()
-        }
-
-        if hh_data.get("source") == "demo":
-
-            for vacancy in vacancies_data:
-
-                required_skills = vacancy.get(
-                    "required_skills",
-                    []
+        vacancies_text = "\n".join(
+            [
+                (
+                    f"Вакансия "
+                    f"{vacancy.get('id', '')}\n"
+                    f"Название: "
+                    f"{vacancy.get('title', '')}\n"
+                    f"Компания: "
+                    f"{vacancy.get('company', '')}\n"
+                    f"Описание: "
+                    f"{vacancy.get('description', '')}\n"
+                    f"Регион: "
+                    f"{vacancy.get('area', '')}\n"
+                    f"Зарплата: "
+                    f"{vacancy.get('salary', '')}\n"
+                    f"Требуемые навыки: "
+                    f"{vacancy.get('required_skills', [])}\n"
+                    f"Ссылка: "
+                    f"{vacancy.get('url', '')}"
                 )
+                for vacancy in vacancies_data
+            ]
+        )
 
-                matched = []
-                missing = []
-
-                for required_skill in required_skills:
-
-                    required_name = (
-                        str(required_skill)
-                        .strip()
-                        .lower()
-                    )
-
-                    if required_name in user_skill_names:
-                        matched.append(required_skill)
-                    else:
-                        missing.append(required_skill)
-
-                if required_skills:
-                    match_percent = round(
-                        len(matched)
-                        / len(required_skills)
-                        * 100
-                    )
-                else:
-                    match_percent = 0
-
-                vacancy["match_percent"] = match_percent
-                vacancy["matched_skills"] = matched
-                vacancy["missing_skills"] = missing
         # =================================================
         # SKILLS TEXT
         # =================================================
@@ -1429,10 +1324,10 @@ def analyze(user_id: int):
 ЦЕЛЕВАЯ ПРОФЕССИЯ:
 {goal}
 
-ТЕКУЩИЕ НАВЫКИ ПОЛЬЗОВАТЕЛЯ:
+ТЕКУЩИЕ НАВЫКИ:
 {skills_text}
 
-ОПЫТ:
+ОПЫТ И ПРОЕКТЫ:
 {experience}
 
 ВАКАНСИИ:
@@ -1444,7 +1339,7 @@ def analyze(user_id: int):
 2. Его сильные стороны.
 3. Недостающие навыки.
 4. Что нужно изучить в первую очередь.
-5. Практический проект.
+5. Практический проект для развития.
 6. Подходящие вакансии.
 7. Карьерный маршрут.
 8. Следующий конкретный шаг.
@@ -1452,20 +1347,16 @@ def analyze(user_id: int):
 
 ВАЖНЫЕ ПРАВИЛА:
 
-- Никогда не придумывай текущие навыки пользователя.
-- Текущими навыками считаются ТОЛЬКО навыки
-  из блока "ТЕКУЩИЕ НАВЫКИ ПОЛЬЗОВАТЕЛЯ".
-- Не считай требования вакансий текущими навыками.
-- Не считай навыки из названия профессии текущими навыками.
+- Не придумывай навыки пользователя.
+- Текущими навыками считай только те,
+  которые указаны пользователем.
 - Используй переданные уровни навыков.
-- Если навыков нет, считай пользователя начинающим.
-- Если опыта нет, не придумывай его.
+- Если пользователь не указал навыки,
+  считай его начинающим.
+- Если пользователь не указал опыт,
+  не придумывай его.
+- Предлагай реалистичный путь для новичка.
 - Отсутствие навыка не является ошибкой.
-- Недостающие навыки должны быть только теми,
-  которых нет среди текущих навыков пользователя
-  или уровень которых недостаточен.
-- Сильные стороны должны основываться только
-  на текущих навыках пользователя.
 
 Для вакансий оцени соответствие примерно
 по формуле:
@@ -1489,8 +1380,8 @@ matched skills / required skills * 100
     "Начальный уровень (Junior)",
 
   "strengths": [
-    "Python: уровень 3/5",
-    "C++: уровень 3/5"
+    "Python: уровень 3",
+    "Git: уровень 3"
   ],
 
   "missing_skills": [
@@ -1528,7 +1419,8 @@ matched skills / required skills * 100
         "Company",
       "match_percent": 65,
       "matched_skills": [
-        "Python"
+        "Python",
+        "Git"
       ],
       "missing_skills": [
         "FastAPI"
@@ -1538,7 +1430,7 @@ matched skills / required skills * 100
   ],
 
   "next_step":
-    "Начать изучение FastAPI.",
+    "Начать изучение FastAPI и создать небольшой REST API.",
 
   "roadmap": [
     {{
@@ -1568,7 +1460,7 @@ matched skills / required skills * 100
       "title": "Backend Developer",
       "match_percent": 70,
       "why":
-        "Направление соответствует текущим навыкам.",
+        "Направление хорошо соответствует текущим навыкам.",
       "description":
         "Разработка серверной части приложений.",
       "required_skills": [
@@ -1640,43 +1532,41 @@ matched skills / required skills * 100
         )
 
         raw_result = (
-            response.output_text or ""
-        ).strip()
-
-        if not raw_result:
-
-            raise HTTPException(
-                status_code=500,
-                detail="AI не вернул результат."
-            )
+            response.output_text
+        )
 
         # =================================================
         # CLEAN JSON
         # =================================================
 
-        if raw_result.startswith(
-            "```json"
-        ):
+        raw_result = raw_result.strip()
 
-            raw_result = raw_result[
-                len("```json"):
-            ].strip()
+        if raw_result.startswith("```json"):
 
-        elif raw_result.startswith(
-            "```"
-        ):
+            raw_result = (
+                raw_result[
+                    len("```json"):
+                ]
+                .strip()
+            )
 
-            raw_result = raw_result[
-                len("```"):
-            ].strip()
+        if raw_result.startswith("```"):
 
-        if raw_result.endswith(
-            "```"
-        ):
+            raw_result = (
+                raw_result[
+                    len("```"):
+                ]
+                .strip()
+            )
 
-            raw_result = raw_result[
-                :-3
-            ].strip()
+        if raw_result.endswith("```"):
+
+            raw_result = (
+                raw_result[
+                    :-3
+                ]
+                .strip()
+            )
 
         # =================================================
         # PARSE JSON
@@ -1692,7 +1582,7 @@ matched skills / required skills * 100
 
             print(
                 "AI JSON ERROR:",
-                repr(e)
+                e
             )
 
             print(
@@ -1706,18 +1596,139 @@ matched skills / required skills * 100
             )
 
         # =================================================
-        # CHECK RESULT
+        # PROTECT USER SKILLS
+        # =================================================
+        # AI may suggest skills required for the profession,
+        # but it must not present them as user's current skills.
+        actual_skills = {
+            str(item.get("skill", "")).strip().lower(): item
+            for item in user_skills
+            if str(item.get("skill", "")).strip()
+        }
+
+        filtered_strengths = []
+
+        for strength in result.get("strengths", []):
+            if not isinstance(strength, str):
+                continue
+
+            strength_lower = strength.lower()
+
+            if any(
+                skill_name in strength_lower
+                for skill_name in actual_skills
+            ):
+                filtered_strengths.append(strength)
+
+        # Если AI не вывел сильные стороны, формируем их
+        # только из реально сохранённых навыков пользователя.
+        if not filtered_strengths:
+            filtered_strengths = [
+                f"{item['skill']}: уровень {item['level']}"
+                for item in user_skills
+            ]
+
+        result["strengths"] = filtered_strengths
+
+        # Удаляем из missing_skills только те навыки,
+        # которые пользователь уже имеет на требуемом уровне.
+        filtered_missing = []
+
+        for item in result.get("missing_skills", []):
+            if not isinstance(item, dict):
+                continue
+
+            skill_name = str(
+                item.get("skill", "")
+            ).strip()
+
+            if not skill_name:
+                continue
+
+            actual = actual_skills.get(
+                skill_name.lower()
+            )
+
+            if actual is not None:
+                current_level = int(
+                    actual.get("level", 0) or 0
+                )
+                required_level = int(
+                    item.get("required_level", 5) or 5
+                )
+
+                if current_level >= required_level:
+                    continue
+
+                item["current_level"] = current_level
+
+            filtered_missing.append(item)
+
+        result["missing_skills"] = filtered_missing
+
+        # =================================================
+        # CAREER MATCH
         # =================================================
 
-        if not isinstance(
-            result,
-            dict
+        career_match = (
+            result.get(
+                "career_match_percent"
+            )
+        )
+
+        if isinstance(
+            career_match,
+            (int, float)
         ):
 
-            raise HTTPException(
-                status_code=500,
-                detail="AI вернул некорректную структуру."
+            result[
+                "career_match_percent"
+            ] = round(
+                max(
+                    0,
+                    min(
+                        100,
+                        career_match
+                    )
+                )
             )
+
+        else:
+
+            strengths = (
+                result.get(
+                    "strengths",
+                    []
+                )
+            )
+
+            missing_skills = (
+                result.get(
+                    "missing_skills",
+                    []
+                )
+            )
+
+            total_skills = (
+                len(strengths)
+                + len(missing_skills)
+            )
+
+            if total_skills > 0:
+
+                fallback_match = round(
+                    len(strengths)
+                    / total_skills
+                    * 100
+                )
+
+            else:
+
+                fallback_match = 0
+
+            result[
+                "career_match_percent"
+            ] = fallback_match
 
         # =================================================
         # NORMALIZE ARRAYS
@@ -1738,230 +1749,13 @@ matched skills / required skills * 100
                 result.get(field),
                 list
             ):
-
                 result[field] = []
-
-        # =================================================
-        # PROTECT USER SKILLS
-        # =================================================
-        #
-        # Сильные стороны берём напрямую
-        # из user_skills.
-        #
-        # AI не может добавить сюда навыки,
-        # которых нет у пользователя.
-        # =================================================
-
-        result["strengths"] = [
-            f"{item['skill']}: уровень {item['level']}/5"
-            for item in user_skills
-        ]
-
-        # =================================================
-        # ACTUAL USER SKILLS
-        # =================================================
-
-        actual_skills = {
-            str(
-                item.get(
-                    "skill",
-                    ""
-                )
-            ).strip().lower():
-            item
-            for item in user_skills
-            if str(
-                item.get(
-                    "skill",
-                    ""
-                )
-            ).strip()
-        }
-
-        # =================================================
-        # FILTER MISSING SKILLS
-        # =================================================
-
-        filtered_missing = []
-
-        for item in result.get(
-            "missing_skills",
-            []
-        ):
-
-            if not isinstance(
-                item,
-                dict
-            ):
-                continue
-
-            skill_name = str(
-                item.get(
-                    "skill",
-                    ""
-                )
-            ).strip()
-
-            if not skill_name:
-                continue
-
-            actual = actual_skills.get(
-                skill_name.lower()
-            )
-
-            # -------------------------------------------------
-            # Навык уже есть у пользователя
-            # -------------------------------------------------
-
-            if actual is not None:
-
-                current_level = int(
-                    actual.get(
-                        "level",
-                        0
-                    ) or 0
-                )
-
-                try:
-
-                    required_level = int(
-                        item.get(
-                            "required_level",
-                            5
-                        ) or 5
-                    )
-
-                except (
-                    TypeError,
-                    ValueError
-                ):
-
-                    required_level = 5
-
-                # -------------------------------------------------
-                # Навык уже достаточно развит
-                # -------------------------------------------------
-
-                if current_level >= required_level:
-                    continue
-
-                item["current_level"] = (
-                    current_level
-                )
-
-            else:
-
-                # -------------------------------------------------
-                # Навык отсутствует
-                # -------------------------------------------------
-
-                item["current_level"] = 0
-
-            filtered_missing.append(
-                item
-            )
-
-        result["missing_skills"] = (
-            filtered_missing
-        )
-        # =================================================
-# FORCE DEMO VACANCY MATCH
-# =================================================
-
-if hh_data.get("source") == "demo":
-
-    result["vacancies"] = [
-        {
-            "id": vacancy.get("id"),
-            "title": vacancy.get("title"),
-            "company": vacancy.get("company"),
-            "description": vacancy.get("description"),
-            "required_skills": vacancy.get(
-                "required_skills",
-                []
-            ),
-            "match_percent": vacancy.get(
-                "match_percent",
-                0
-            ),
-            "matched_skills": vacancy.get(
-                "matched_skills",
-                []
-            ),
-            "missing_skills": vacancy.get(
-                "missing_skills",
-                []
-            ),
-            "url": vacancy.get("url", "")
-        }
-        for vacancy in vacancies_data
-    ]
-        # =================================================
-        # CAREER MATCH
-        # =================================================
-
-        career_match = result.get(
-            "career_match_percent"
-        )
-
-        if isinstance(
-            career_match,
-            (int, float)
-        ):
-
-            result[
-                "career_match_percent"
-            ] = round(
-                max(
-                    0,
-                    min(
-                        100,
-                        float(career_match)
-                    )
-                )
-            )
-
-        else:
-
-            total_skills = (
-                len(user_skills)
-                + len(
-                    result.get(
-                        "missing_skills",
-                        []
-                    )
-                )
-            )
-
-            if total_skills > 0:
-
-                fallback_match = round(
-                    len(user_skills)
-                    / total_skills
-                    * 100
-                )
-
-            else:
-
-                fallback_match = 0
-
-            result[
-                "career_match_percent"
-            ] = fallback_match
 
         # =================================================
         # SORT VACANCIES
         # =================================================
 
-        def vacancy_match(
-            vacancy
-        ):
-
-            if not isinstance(
-                vacancy,
-                dict
-            ):
-                return 0
+        def vacancy_match(vacancy):
 
             try:
 
@@ -1972,18 +1766,12 @@ if hh_data.get("source") == "demo":
                     ) or 0
                 )
 
-            except (
-                TypeError,
-                ValueError
-            ):
+            except Exception:
 
                 return 0
 
         result["vacancies"] = sorted(
-            result.get(
-                "vacancies",
-                []
-            ),
+            result["vacancies"],
             key=vacancy_match,
             reverse=True
         )
@@ -1999,11 +1787,7 @@ if hh_data.get("source") == "demo":
                 cur.execute(
                     """
                     INSERT INTO roadmaps
-                    (
-                        user_id,
-                        target_role,
-                        result
-                    )
+                    (user_id, target_role, result)
                     VALUES (%s, %s, %s)
                     RETURNING id
                     """,
@@ -2042,7 +1826,7 @@ if hh_data.get("source") == "demo":
 
         print(
             "ANALYZE ERROR:",
-            repr(e)
+            e
         )
 
         raise HTTPException(
@@ -2100,7 +1884,7 @@ def get_roadmap(user_id: int):
 
         print(
             "GET ROADMAP ERROR:",
-            repr(e)
+            e
         )
 
         raise HTTPException(
@@ -2168,7 +1952,7 @@ def get_roadmaps_history(
 
         print(
             "HISTORY ERROR:",
-            repr(e)
+            e
         )
 
         raise HTTPException(
