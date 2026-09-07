@@ -52,3 +52,10 @@ VALUES
     ('Junior Backend Developer', 'Tech Company', 'Разработка backend-приложений', '["Python", "SQL", "Git", "FastAPI"]'),
     ('Python Developer', 'IT Company', 'Разработка сервисов на Python', '["Python", "PostgreSQL", "Docker", "Git"]'),
     ('Backend Developer', 'AI Company', 'Разработка API и backend-сервисов', '["Python", "FastAPI", "PostgreSQL", "Docker", "SQL"]');
+   CREATE TABLE mentor_messages (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id),
+    role VARCHAR(20),
+    message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
