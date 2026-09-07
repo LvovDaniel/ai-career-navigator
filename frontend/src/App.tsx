@@ -17,6 +17,10 @@ function App() {
     .map((skill) => skill.trim())
     .filter((skill) => skill.length > 0)
 
+  // =========================
+  // AI ANALYSIS
+  // =========================
+
   const analyzeCareer = async () => {
     if (!goal.trim()) {
       alert('Укажи желаемую профессию')
@@ -83,7 +87,7 @@ function App() {
       }
 
       // =========================
-      // SAVE PROFILE + PROJECT
+      // SAVE PROFILE
       // =========================
 
       const profileResponse = await fetch(`${API_BASE_URL}/profile`, {
@@ -95,9 +99,7 @@ function App() {
           user_id: user.user_id,
           skills: skillList,
           experience: experience,
-          projects: experience.trim()
-            ? [experience.trim()]
-            : [],
+          projects: experience.trim() ? [experience.trim()] : [],
         }),
       })
 
@@ -133,6 +135,17 @@ function App() {
       console.log('AI RESULT:', data)
 
       setResult(data)
+
+      // =========================
+      // SCROLL TO RESULT
+      // =========================
+
+      setTimeout(() => {
+        document.querySelector('.result')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        })
+      }, 100)
     } catch (error) {
       console.error('ОШИБКА:', error)
 
@@ -152,6 +165,63 @@ function App() {
     }
   }
 
+  // =========================
+  // CAREER MATCH
+  // =========================
+
+  const calculateCareerMatch = () => {
+    if (!result) {
+      return 0
+    }
+
+    // Если Backend прислал готовый процент
+    if (typeof result.career_match_percent === 'number') {
+      return Math.round(
+        Math.max(
+          0,
+          Math.min(100, result.career_match_percent),
+        ),
+      )
+    }
+
+    // Если missing_skills отсутствует
+    const missingSkills = result.missing_skills || []
+
+    if (missingSkills.length === 0) {
+      return 100
+    }
+
+    let totalProgress = 0
+
+    for (const item of missingSkills) {
+      const currentLevel = Number(item.current_level ?? 0)
+      const requiredLevel = Number(item.required_level ?? 5)
+
+      if (requiredLevel > 0) {
+        totalProgress += Math.min(
+          100,
+          (currentLevel / requiredLevel) * 100,
+        )
+      }
+    }
+
+    return Math.round(
+      Math.max(
+        0,
+        Math.min(
+          100,
+          totalProgress / missingSkills.length,
+        ),
+      ),
+    )
+  }
+
+  const careerMatch = calculateCareerMatch()
+
+  // =========================
+  // RENDER
+  // =========================
+
   return (
     <div className="app">
 
@@ -169,25 +239,35 @@ function App() {
         </div>
       </header>
 
-
       {/* =========================
           MAIN
       ========================= */}
 
       <main className="container">
 
+        {/* =========================
+            HERO
+        ========================= */}
+
         <section className="hero">
+
+          <div className="hero-badge">
+            AI • CAREER • NAVIGATION
+          </div>
+
           <h1>
-            Построй карьеру с помощью AI
+            Построй карьерный путь
+            с помощью AI
           </h1>
 
           <p>
             Расскажи о своих навыках и цели —
-            система определит пробелы и построит
+            система определит пробелы,
+            оценит готовность и построит
             персональный карьерный маршрут.
           </p>
-        </section>
 
+        </section>
 
         {/* =========================
             PROFILE FORM
@@ -195,10 +275,26 @@ function App() {
 
         <section className="card">
 
-          <h2>
-            Расскажи о себе
-          </h2>
+          <div className="form-heading">
 
+            <div className="form-number">
+              01
+            </div>
+
+            <div className="form-heading-content">
+
+              <h2>
+                Расскажи о себе
+              </h2>
+
+              <p>
+                Чем больше информации ты укажешь,
+                тем точнее будет анализ.
+              </p>
+
+            </div>
+
+          </div>
 
           {/* GOAL */}
 
@@ -210,11 +306,8 @@ function App() {
             type="text"
             placeholder="Например: Backend Developer"
             value={goal}
-            onChange={(e) =>
-              setGoal(e.target.value)
-            }
+            onChange={(e) => setGoal(e.target.value)}
           />
-
 
           {/* SKILLS */}
 
@@ -225,15 +318,13 @@ function App() {
           <textarea
             placeholder="Например: Python, C++, Git, SQL"
             value={skills}
-            onChange={(e) =>
-              setSkills(e.target.value)
-            }
+            onChange={(e) => setSkills(e.target.value)}
           />
-
 
           {/* SKILL LEVELS */}
 
           {skillList.length > 0 && (
+
             <div className="skill-levels">
 
               <label>
@@ -241,6 +332,7 @@ function App() {
               </label>
 
               {skillList.map((skill) => (
+
                 <div
                   className="skill-level-row"
                   key={skill}
@@ -255,12 +347,11 @@ function App() {
                     onChange={(e) =>
                       setSkillLevels({
                         ...skillLevels,
-                        [skill]: Number(
-                          e.target.value,
-                        ),
+                        [skill]: Number(e.target.value),
                       })
                     }
                   >
+
                     <option value={1}>
                       1 — Начальный
                     </option>
@@ -280,14 +371,16 @@ function App() {
                     <option value={5}>
                       5 — Эксперт
                     </option>
+
                   </select>
 
                 </div>
+
               ))}
 
             </div>
-          )}
 
+          )}
 
           {/* EXPERIENCE */}
 
@@ -298,28 +391,21 @@ function App() {
           <textarea
             placeholder="Расскажи о своём опыте, проектах и обучении"
             value={experience}
-            onChange={(e) =>
-              setExperience(e.target.value)
-            }
+            onChange={(e) => setExperience(e.target.value)}
           />
-
 
           {/* BUTTON */}
 
           <button
             onClick={analyzeCareer}
-            disabled={
-              loading ||
-              !goal.trim()
-            }
+            disabled={loading || !goal.trim()}
           >
             {loading
               ? 'Анализируем...'
-              : 'Построить карьерный маршрут'}
+              : 'Построить карьерный маршрут →'}
           </button>
 
         </section>
-
 
         {/* =========================
             RESULT
@@ -329,19 +415,37 @@ function App() {
 
           <section className="result">
 
-            <h2>
-              Твой карьерный маршрут
-            </h2>
+            <div className="result-heading">
 
+              <div className="result-number">
+                02
+              </div>
 
-            {/* TARGET + LEVEL */}
+              <div className="result-heading-content">
+
+                <h2>
+                  Твой карьерный маршрут
+                </h2>
+
+                <p>
+                  Анализ профиля, навыков и требований
+                  целевой профессии.
+                </p>
+
+              </div>
+
+            </div>
+
+            {/* =========================
+                TARGET + LEVEL
+            ========================= */}
 
             <div className="result-grid">
 
               <div className="result-card">
 
                 <span className="result-label">
-                  🎯 Целевая профессия
+                  Целевая профессия
                 </span>
 
                 <h3>
@@ -350,11 +454,10 @@ function App() {
 
               </div>
 
-
               <div className="result-card">
 
                 <span className="result-label">
-                  📊 Текущий уровень
+                  Текущий уровень
                 </span>
 
                 <h3>
@@ -365,19 +468,23 @@ function App() {
 
             </div>
 
-
-            {/* STRENGTHS */}
+            {/* =========================
+                STRENGTHS
+            ========================= */}
 
             <div className="result-card">
 
               <h3>
-                💪 Сильные стороны
+                Сильные стороны
               </h3>
 
               <ul className="result-list">
 
                 {result.strengths?.map(
-                  (item: any, index: number) => (
+                  (
+                    item: any,
+                    index: number,
+                  ) => (
 
                     <li key={index}>
 
@@ -394,35 +501,40 @@ function App() {
 
             </div>
 
-
-            {/* MISSING SKILLS */}
+            {/* =========================
+                MISSING SKILLS
+            ========================= */}
 
             <div className="result-card">
 
               <h3>
-                📚 Что нужно изучить
+                Что нужно изучить
               </h3>
 
               <div className="skills-list">
 
                 {result.missing_skills?.map(
-                  (item: any, index: number) => {
+                  (
+                    item: any,
+                    index: number,
+                  ) => {
 
                     const currentLevel =
-                      item.current_level ?? 0
+                      Number(item.current_level ?? 0)
 
                     const requiredLevel =
-                      item.required_level ?? 5
+                      Number(item.required_level ?? 5)
 
                     const progress =
-                      Math.min(
-                        100,
-                        (currentLevel /
-                          requiredLevel) *
-                          100,
-                      )
+                      requiredLevel > 0
+                        ? Math.min(
+                            100,
+                            (currentLevel / requiredLevel) * 100,
+                          )
+                        : 0
 
                     return (
+
                       <div
                         className="skill-item"
                         key={index}
@@ -435,12 +547,10 @@ function App() {
                           </strong>
 
                           <span>
-                            {currentLevel} /{' '}
-                            {requiredLevel}
+                            {currentLevel} / {requiredLevel}
                           </span>
 
                         </div>
-
 
                         <div className="progress">
 
@@ -453,12 +563,12 @@ function App() {
 
                         </div>
 
-
                         <p>
                           {item.reason}
                         </p>
 
                       </div>
+
                     )
                   },
                 )}
@@ -467,129 +577,217 @@ function App() {
 
             </div>
 
-
-            {/* RECOMMENDED PROJECT */}
+            {/* =========================
+                RECOMMENDED PROJECT
+            ========================= */}
 
             <div className="result-card">
 
               <h3>
-                🚀 Рекомендуемый проект
+                Рекомендуемый проект
               </h3>
 
-              <h4>
-                {result.recommended_project?.name}
-              </h4>
-
               <p>
-                {
-                  result.recommended_project
-                    ?.description
-                }
+                {typeof result.recommended_project === 'string'
+                  ? result.recommended_project
+                  : result.recommended_project?.description ||
+                    result.recommended_project?.name ||
+                    'Проект пока не сформирован.'}
               </p>
 
+              {result.recommended_project?.technologies && (
 
-              <div className="tags">
+                <div className="tags">
 
-                {result.recommended_project?.technologies?.map(
-                  (
-                    technology: string,
-                    index: number,
-                  ) => (
+                  {result.recommended_project.technologies.map(
+                    (
+                      technology: string,
+                      index: number,
+                    ) => (
 
-                    <span key={index}>
-                      {technology}
-                    </span>
+                      <span key={index}>
+                        {technology}
+                      </span>
 
-                  ),
-                )}
+                    ),
+                  )}
 
-              </div>
+                </div>
+
+              )}
 
             </div>
 
+            {/* =========================
+                CAREER MATCH
+            ========================= */}
 
-            {/* VACANCIES */}
+            <div className="result-card career-match-card">
+
+              <div className="career-match-header">
+
+                <div>
+
+                  <span className="result-label">
+                    КАРЬЕРНЫЙ MATCH
+                  </span>
+
+                  <h3>
+                    Готовность к целевой профессии
+                  </h3>
+
+                </div>
+
+                <div className="career-match-value">
+                  {careerMatch}%
+                </div>
+
+              </div>
+
+              <div className="career-match-bar">
+
+                <div
+                  className="career-match-progress"
+                  style={{
+                    width: `${careerMatch}%`,
+                  }}
+                />
+
+              </div>
+
+              <p>
+                Показатель отражает соответствие
+                текущих навыков требованиям выбранной
+                профессии.
+              </p>
+
+            </div>
+
+            {/* =========================
+                VACANCIES
+            ========================= */}
 
             {result.vacancies?.length > 0 && (
 
               <div className="result-card">
 
                 <h3>
-                  💼 Подходящие вакансии
+                  Подходящие вакансии
                 </h3>
-
 
                 <div className="vacancies">
 
                   {result.vacancies.map(
-                    (vacancy: any) => (
+                    (
+                      vacancy: any,
+                      index: number,
+                    ) => {
 
-                      <div
-                        className="vacancy-card"
-                        key={
-                          vacancy.id ||
-                          vacancy.title
-                        }
-                      >
+                      const matchPercent =
+                        vacancy.match_percent ?? 0
 
-                        <div className="vacancy-header">
+                      return (
 
-                          <div>
+                        <div
+                          className="vacancy-card"
+                          key={
+                            vacancy.id ||
+                            `${vacancy.title}-${index}`
+                          }
+                        >
 
-                            <h3>
-                              {vacancy.title}
-                            </h3>
+                          <div className="vacancy-header">
 
-                            <p>
-                              {vacancy.company}
-                            </p>
+                            <div>
 
-                          </div>
+                              <h3>
+                                {vacancy.title}
+                              </h3>
 
+                              <p>
+                                {vacancy.company}
+                              </p>
 
-                          <div className="match">
-                            {vacancy.match_percent}%
-                          </div>
+                            </div>
 
-                        </div>
-
-
-                        {vacancy.missing_skills?.length > 0 && (
-
-                          <div className="vacancy-missing">
-
-                            <span>
-                              Не хватает:
-                            </span>
-
-
-                            <div className="tags">
-
-                              {vacancy.missing_skills.map(
-                                (
-                                  skill: string,
-                                  index: number,
-                                ) => (
-
-                                  <span
-                                    className="tag"
-                                    key={index}
-                                  >
-                                    {skill}
-                                  </span>
-
-                                ),
-                              )}
-
+                            <div className="match">
+                              {matchPercent}%
                             </div>
 
                           </div>
 
-                        )}
+                          {/* MATCHED SKILLS */}
 
-                      </div>
+                          {vacancy.matched_skills?.length > 0 && (
 
-                    ),
+                            <div className="vacancy-matched">
+
+                              <span>
+                                Подходят:
+                              </span>
+
+                              <div className="tags">
+
+                                {vacancy.matched_skills.map(
+                                  (
+                                    skill: string,
+                                    skillIndex: number,
+                                  ) => (
+
+                                    <span
+                                      className="tag"
+                                      key={skillIndex}
+                                    >
+                                      ✓ {skill}
+                                    </span>
+
+                                  ),
+                                )}
+
+                              </div>
+
+                            </div>
+
+                          )}
+
+                          {/* MISSING SKILLS */}
+
+                          {vacancy.missing_skills?.length > 0 && (
+
+                            <div className="vacancy-missing">
+
+                              <span>
+                                Не хватает:
+                              </span>
+
+                              <div className="tags">
+
+                                {vacancy.missing_skills.map(
+                                  (
+                                    skill: string,
+                                    skillIndex: number,
+                                  ) => (
+
+                                    <span
+                                      className="tag"
+                                      key={skillIndex}
+                                    >
+                                      {skill}
+                                    </span>
+
+                                  ),
+                                )}
+
+                              </div>
+
+                            </div>
+
+                          )}
+
+                        </div>
+
+                      )
+                    },
                   )}
 
                 </div>
@@ -598,15 +796,15 @@ function App() {
 
             )}
 
-
-            {/* ROADMAP */}
+            {/* =========================
+                ROADMAP
+            ========================= */}
 
             <div className="result-card">
 
               <h3>
-                🗺️ Карьерный маршрут
+                Карьерный маршрут
               </h3>
-
 
               <div className="roadmap">
 
@@ -621,7 +819,6 @@ function App() {
                       <div className="step-number">
                         {step.step}
                       </div>
-
 
                       <div>
 
@@ -644,13 +841,14 @@ function App() {
 
             </div>
 
-
-            {/* NEXT STEP */}
+            {/* =========================
+                NEXT STEP
+            ========================= */}
 
             <div className="result-card next-step">
 
               <h3>
-                👉 Следующий шаг
+                Следующий шаг
               </h3>
 
               <p>

@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
 import psycopg
 from psycopg.types.json import Json
 from dotenv import load_dotenv
 from openai import OpenAI
+
 import os
 import requests
 import json
@@ -16,12 +18,9 @@ import json
 
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-if not OPENAI_API_KEY:
-    print("WARNING: OPENAI_API_KEY is not set")
-
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY")
+)
 
 
 # =========================
@@ -29,7 +28,7 @@ client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 # =========================
 
 app = FastAPI(
-    title="AI Career Navigator API",
+    title="AI Career Navigator",
     version="1.0.0"
 )
 
@@ -38,20 +37,20 @@ app = FastAPI(
 # CORS
 # =========================
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "")
-
-allow_origins = [
+origins = [
     "http://localhost:5173",
     "http://localhost:5174",
-    "https://delightful-adaptation-production-fd1f.up.railway.app",
+    "https://delightful-adaptation-production-fd1f.up.railway.app"
 ]
 
-if FRONTEND_URL and FRONTEND_URL not in allow_origins:
-    allow_origins.append(FRONTEND_URL)
+frontend_url = os.getenv("FRONTEND_URL")
+
+if frontend_url:
+    origins.append(frontend_url)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allow_origins,
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,105 +67,8 @@ def get_db():
         port=int(os.getenv("DB_PORT", 5432)),
         dbname=os.getenv("DB_NAME", "ai_navigator"),
         user=os.getenv("DB_USER", "admin"),
-        password=os.getenv("DB_PASSWORD", "admin123"),
+        password=os.getenv("DB_PASSWORD", "admin123")
     )
-
-
-def init_db():
-    with get_db() as conn:
-        with conn.cursor() as cur:
-
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    name VARCHAR(100) NOT NULL,
-                    email VARCHAR(255) UNIQUE NOT NULL,
-                    resume TEXT DEFAULT '',
-                    goal VARCHAR(255) NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS skills (
-                    id SERIAL PRIMARY KEY,
-                    name VARCHAR(100) UNIQUE NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS user_skills (
-                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                    skill_id INTEGER REFERENCES skills(id) ON DELETE CASCADE,
-                    level INTEGER CHECK (level >= 1 AND level <= 5),
-                    PRIMARY KEY (user_id, skill_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS projects (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                    name VARCHAR(255) NOT NULL,
-                    description TEXT DEFAULT ''
-                );
-
-                CREATE TABLE IF NOT EXISTS courses (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                    name VARCHAR(255) NOT NULL,
-                    description TEXT DEFAULT ''
-                );
-
-                CREATE TABLE IF NOT EXISTS vacancies (
-                    id SERIAL PRIMARY KEY,
-                    title VARCHAR(255) NOT NULL,
-                    company VARCHAR(255) NOT NULL,
-                    description TEXT DEFAULT '',
-                    required_skills JSONB DEFAULT '[]'
-                );
-
-                CREATE TABLE IF NOT EXISTS roadmaps (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                    target_role VARCHAR(255) NOT NULL,
-                    result JSONB NOT NULL
-                );
-            """)
-
-            # Добавляем демо-вакансии только если таблица пустая
-            cur.execute("SELECT COUNT(*) FROM vacancies")
-            vacancy_count = cur.fetchone()[0]
-
-            if vacancy_count == 0:
-                cur.execute("""
-                    INSERT INTO vacancies
-                    (title, company, description, required_skills)
-                    VALUES
-                    (
-                        'Junior Backend Developer',
-                        'Tech Company',
-                        'Разработка backend-приложений',
-                        '["Python", "SQL", "Git", "FastAPI"]'
-                    ),
-                    (
-                        'Python Developer',
-                        'IT Company',
-                        'Разработка сервисов на Python',
-                        '["Python", "PostgreSQL", "Docker", "Git"]'
-                    ),
-                    (
-                        'Backend Developer',
-                        'AI Company',
-                        'Разработка API и backend-сервисов',
-                        '["Python", "FastAPI", "PostgreSQL", "Docker", "SQL"]'
-                    )
-                """)
-
-            conn.commit()
-
-    print("Database initialized successfully")
-
-
-@app.on_event("startup")
-def startup():
-    try:
-        init_db()
-    except Exception as e:
-        print("DATABASE INITIALIZATION ERROR:", e)
 
 
 # =========================
@@ -190,7 +92,7 @@ class Profile(BaseModel):
 class UserSkill(BaseModel):
     user_id: int
     skill: str
-    level: int = 3
+    level: int = Field(default=3, ge=1, le=5)
 
 
 # =========================
@@ -200,16 +102,30 @@ class UserSkill(BaseModel):
 @app.get("/")
 def root():
     return {
-        "message": "AI Career Navigator API",
-        "status": "running"
+        "message": "AI Career Navigator API is running"
     }
 
+
+# =========================
+# HEALTH
+# =========================
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok"
-    }
+    try:
+        conn = get_db()
+        conn.close()
+
+        return {
+            "status": "ok",
+            "database": "connected"
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "database": str(e)
+        }
 
 
 # =========================
@@ -220,37 +136,34 @@ def health():
 def create_user(user: User):
 
     try:
+
         with get_db() as conn:
+
             with conn.cursor() as cur:
 
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO users
                     (name, email, goal, resume)
                     VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (email)
-                    DO UPDATE SET
-                        name = EXCLUDED.name,
-                        goal = EXCLUDED.goal,
-                        resume = EXCLUDED.resume
                     RETURNING id
-                """, (
-                    user.name,
-                    user.email,
-                    user.goal,
-                    user.resume
-                ))
+                    """,
+                    (
+                        user.name,
+                        user.email,
+                        user.goal,
+                        user.resume
+                    )
+                )
 
                 user_id = cur.fetchone()[0]
 
-                conn.commit()
-
         return {
-            "user_id": user_id,
-            "message": "User created successfully"
+            "user_id": user_id
         }
 
     except Exception as e:
-        print("CREATE USER ERROR:", e)
+
         raise HTTPException(
             status_code=500,
             detail=str(e)
@@ -258,69 +171,109 @@ def create_user(user: User):
 
 
 # =========================
-# PROFILE
+# GET PROFILE
+# =========================
+
+@app.get("/profile/{user_id}")
+def get_profile(user_id: int):
+
+    try:
+
+        with get_db() as conn:
+
+            with conn.cursor() as cur:
+
+                cur.execute(
+                    """
+                    SELECT
+                        id,
+                        name,
+                        email,
+                        goal,
+                        resume
+                    FROM users
+                    WHERE id = %s
+                    """,
+                    (user_id,)
+                )
+
+                row = cur.fetchone()
+
+                if not row:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="User not found"
+                    )
+
+        return {
+            "id": row[0],
+            "name": row[1],
+            "email": row[2],
+            "goal": row[3],
+            "resume": row[4]
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+# =========================
+# SAVE PROFILE
 # =========================
 
 @app.post("/profile")
 def save_profile(profile: Profile):
 
     try:
+
         with get_db() as conn:
+
             with conn.cursor() as cur:
 
-                # Проверяем пользователя
+                # Сохраняем опыт в resume
                 cur.execute(
-                    "SELECT id FROM users WHERE id = %s",
-                    (profile.user_id,)
-                )
-
-                if cur.fetchone() is None:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="User not found"
-                    )
-
-                # Сохраняем опыт / резюме
-                cur.execute("""
+                    """
                     UPDATE users
                     SET resume = %s
                     WHERE id = %s
-                """, (
-                    profile.experience,
-                    profile.user_id
-                ))
+                    """,
+                    (
+                        profile.experience,
+                        profile.user_id
+                    )
+                )
 
-                # Пересоздаём проекты
-                cur.execute("""
-                    DELETE FROM projects
-                    WHERE user_id = %s
-                """, (profile.user_id,))
-
+                # Сохраняем проекты
                 for project in profile.projects:
-                    project = project.strip()
 
-                    if project:
-                        cur.execute("""
-                            INSERT INTO projects
-                            (user_id, name, description)
-                            VALUES (%s, %s, %s)
-                        """, (
+                    if not project.strip():
+                        continue
+
+                    cur.execute(
+                        """
+                        INSERT INTO projects
+                        (user_id, name, description)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (
                             profile.user_id,
-                            project[:100],
+                            project[:255],
                             project
-                        ))
-
-                conn.commit()
+                        )
+                    )
 
         return {
-            "message": "Profile saved successfully"
+            "status": "saved"
         }
 
-    except HTTPException:
-        raise
-
     except Exception as e:
-        print("SAVE PROFILE ERROR:", e)
 
         raise HTTPException(
             status_code=500,
@@ -329,72 +282,78 @@ def save_profile(profile: Profile):
 
 
 # =========================
-# SKILLS
+# ADD SKILL
 # =========================
 
 @app.post("/skills")
-def add_skill(skill_data: UserSkill):
+def add_skill(skill: UserSkill):
 
-    if skill_data.level < 1 or skill_data.level > 5:
+    if skill.level < 1 or skill.level > 5:
+
         raise HTTPException(
             status_code=400,
             detail="Skill level must be between 1 and 5"
         )
 
     try:
+
         with get_db() as conn:
+
             with conn.cursor() as cur:
 
-                # Создаём навык, если его ещё нет
-                cur.execute("""
+                # Создаем навык, если его еще нет
+                cur.execute(
+                    """
                     INSERT INTO skills (name)
                     VALUES (%s)
                     ON CONFLICT (name)
                     DO NOTHING
-                """, (skill_data.skill,))
+                    """,
+                    (skill.skill,)
+                )
 
                 # Получаем ID навыка
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT id
                     FROM skills
                     WHERE name = %s
-                """, (skill_data.skill,))
+                    """,
+                    (skill.skill,)
+                )
 
                 skill_row = cur.fetchone()
 
                 if not skill_row:
+
                     raise HTTPException(
                         status_code=500,
-                        detail="Could not create skill"
+                        detail="Failed to create skill"
                     )
 
                 skill_id = skill_row[0]
 
-                # Привязываем навык пользователю
-                cur.execute("""
+                # Связываем пользователя и навык
+                cur.execute(
+                    """
                     INSERT INTO user_skills
                     (user_id, skill_id, level)
                     VALUES (%s, %s, %s)
                     ON CONFLICT (user_id, skill_id)
-                    DO UPDATE SET
-                        level = EXCLUDED.level
-                """, (
-                    skill_data.user_id,
-                    skill_id,
-                    skill_data.level
-                ))
-
-                conn.commit()
+                    DO UPDATE SET level = EXCLUDED.level
+                    """,
+                    (
+                        skill.user_id,
+                        skill_id,
+                        skill.level
+                    )
+                )
 
         return {
-            "message": "Skill saved successfully"
+            "status": "saved"
         }
 
-    except HTTPException:
-        raise
-
     except Exception as e:
-        print("ADD SKILL ERROR:", e)
 
         raise HTTPException(
             status_code=500,
@@ -402,14 +361,21 @@ def add_skill(skill_data: UserSkill):
         )
 
 
+# =========================
+# GET SKILLS
+# =========================
+
 @app.get("/skills/{user_id}")
 def get_skills(user_id: int):
 
     try:
+
         with get_db() as conn:
+
             with conn.cursor() as cur:
 
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT
                         skills.name,
                         user_skills.level
@@ -417,21 +383,21 @@ def get_skills(user_id: int):
                     JOIN skills
                         ON skills.id = user_skills.skill_id
                     WHERE user_skills.user_id = %s
-                    ORDER BY skills.name
-                """, (user_id,))
+                    """,
+                    (user_id,)
+                )
 
                 rows = cur.fetchall()
 
         return [
             {
-                "name": row[0],
+                "skill": row[0],
                 "level": row[1]
             }
             for row in rows
         ]
 
     except Exception as e:
-        print("GET SKILLS ERROR:", e)
 
         raise HTTPException(
             status_code=500,
@@ -443,64 +409,115 @@ def get_skills(user_id: int):
 # FULL PROFILE
 # =========================
 
-@app.get("/profile/{user_id}")
-def get_profile(user_id: int):
+@app.get("/profile/full/{user_id}")
+def get_full_profile(user_id: int):
 
     try:
+
         with get_db() as conn:
+
             with conn.cursor() as cur:
 
-                cur.execute("""
-                    SELECT id, name, email, goal, resume
+                # Пользователь
+                cur.execute(
+                    """
+                    SELECT
+                        id,
+                        name,
+                        email,
+                        goal,
+                        resume
                     FROM users
                     WHERE id = %s
-                """, (user_id,))
+                    """,
+                    (user_id,)
+                )
 
                 user = cur.fetchone()
 
                 if not user:
+
                     raise HTTPException(
                         status_code=404,
                         detail="User not found"
                     )
 
-                cur.execute("""
-                    SELECT skills.name, user_skills.level
+                # Skills
+                cur.execute(
+                    """
+                    SELECT
+                        skills.name,
+                        user_skills.level
                     FROM user_skills
                     JOIN skills
                         ON skills.id = user_skills.skill_id
                     WHERE user_skills.user_id = %s
-                """, (user_id,))
+                    """,
+                    (user_id,)
+                )
 
                 skills = cur.fetchall()
 
-                cur.execute("""
-                    SELECT name, description
+                # Projects
+                cur.execute(
+                    """
+                    SELECT
+                        name,
+                        description
                     FROM projects
                     WHERE user_id = %s
-                """, (user_id,))
+                    """,
+                    (user_id,)
+                )
 
                 projects = cur.fetchall()
 
+                # Courses
+                cur.execute(
+                    """
+                    SELECT
+                        name,
+                        description
+                    FROM courses
+                    WHERE user_id = %s
+                    """,
+                    (user_id,)
+                )
+
+                courses = cur.fetchall()
+
         return {
-            "id": user[0],
-            "name": user[1],
-            "email": user[2],
-            "goal": user[3],
-            "resume": user[4],
+
+            "user": {
+                "id": user[0],
+                "name": user[1],
+                "email": user[2],
+                "goal": user[3],
+                "resume": user[4]
+            },
+
             "skills": [
                 {
-                    "name": row[0],
+                    "skill": row[0],
                     "level": row[1]
                 }
                 for row in skills
             ],
+
             "projects": [
                 {
                     "name": row[0],
                     "description": row[1]
                 }
                 for row in projects
+            ],
+
+            "courses": [
+                {
+                    "name": row[0],
+                    "description": row[1]
+                }
+                for row in courses
             ]
         }
 
@@ -508,7 +525,6 @@ def get_profile(user_id: int):
         raise
 
     except Exception as e:
-        print("GET PROFILE ERROR:", e)
 
         raise HTTPException(
             status_code=500,
@@ -516,9 +532,136 @@ def get_profile(user_id: int):
         )
 
 
-@app.get("/profile/full/{user_id}")
-def get_full_profile(user_id: int):
-    return get_profile(user_id)
+# =========================
+# DEMO VACANCIES
+# =========================
+
+def get_vacancies():
+
+    return [
+
+        {
+            "id": 1,
+            "title": "Junior Backend Developer",
+            "company": "Tech Company",
+            "description": "Разработка backend-приложений",
+            "required_skills": [
+                "Python",
+                "SQL",
+                "Git",
+                "FastAPI"
+            ]
+        },
+
+        {
+            "id": 2,
+            "title": "Python Developer",
+            "company": "IT Company",
+            "description": "Разработка сервисов на Python",
+            "required_skills": [
+                "Python",
+                "PostgreSQL",
+                "Docker",
+                "Git"
+            ]
+        },
+
+        {
+            "id": 3,
+            "title": "Backend Developer",
+            "company": "AI Company",
+            "description": "Разработка API и backend-сервисов",
+            "required_skills": [
+                "Python",
+                "FastAPI",
+                "PostgreSQL",
+                "Docker",
+                "SQL"
+            ]
+        }
+
+    ]
+
+
+# =========================
+# REAL HH VACANCIES
+# =========================
+
+@app.get("/vacancies/real")
+def get_real_vacancies(
+    query: str = "Backend Developer"
+):
+
+    url = "https://api.hh.ru/vacancies"
+
+    headers = {
+        "User-Agent": "AI-Career-Navigator/1.0"
+    }
+
+    params = {
+        "text": query,
+        "area": 113,
+        "per_page": 10
+    }
+
+    try:
+
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=10
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        vacancies = []
+
+        for item in data.get("items", []):
+
+            employer = item.get("employer") or {}
+            snippet = item.get("snippet") or {}
+            area = item.get("area") or {}
+
+            vacancies.append(
+                {
+                    "id": item.get("id"),
+                    "title": item.get("name"),
+                    "company": employer.get("name"),
+                    "description": (
+                        snippet.get("requirement")
+                        or ""
+                    ),
+                    "url": item.get("alternate_url"),
+                    "area": area.get("name"),
+                    "salary": item.get("salary")
+                }
+            )
+
+        return {
+            "source": "hh.ru",
+            "query": query,
+            "count": len(vacancies),
+            "vacancies": vacancies
+        }
+
+    except Exception as e:
+
+        print(
+            "HH API ERROR:",
+            e
+        )
+
+        demo = get_vacancies()
+
+        return {
+            "source": "demo",
+            "query": query,
+            "count": len(demo),
+            "vacancies": demo
+        }
 
 
 # =========================
@@ -526,49 +669,8 @@ def get_full_profile(user_id: int):
 # =========================
 
 @app.get("/vacancies")
-def get_vacancies():
+def vacancies():
 
-    try:
-        with get_db() as conn:
-            with conn.cursor() as cur:
-
-                cur.execute("""
-                    SELECT
-                        id,
-                        title,
-                        company,
-                        description,
-                        required_skills
-                    FROM vacancies
-                    ORDER BY id
-                """)
-
-                rows = cur.fetchall()
-
-        return [
-            {
-                "id": row[0],
-                "title": row[1],
-                "company": row[2],
-                "description": row[3],
-                "required_skills": row[4]
-            }
-            for row in rows
-        ]
-
-    except Exception as e:
-        print("GET VACANCIES ERROR:", e)
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
-@app.get("/vacancies/real")
-def get_real_vacancies():
-
-    # Для MVP оставляем демо-вакансии.
     return get_vacancies()
 
 
@@ -579,195 +681,649 @@ def get_real_vacancies():
 @app.post("/analyze")
 def analyze(user_id: int):
 
-    if client is None:
-        raise HTTPException(
-            status_code=500,
-            detail="OPENAI_API_KEY is not configured"
+    try:
+
+        # =====================================
+        # GET USER
+        # =====================================
+
+        with get_db() as conn:
+
+            with conn.cursor() as cur:
+
+                cur.execute(
+                    """
+                    SELECT
+                        id,
+                        name,
+                        email,
+                        goal,
+                        resume
+                    FROM users
+                    WHERE id = %s
+                    """,
+                    (user_id,)
+                )
+
+                user = cur.fetchone()
+
+                if not user:
+
+                    raise HTTPException(
+                        status_code=404,
+                        detail="User not found"
+                    )
+
+                # =====================================
+                # GET SKILLS
+                # =====================================
+
+                cur.execute(
+                    """
+                    SELECT
+                        skills.name,
+                        user_skills.level
+                    FROM user_skills
+                    JOIN skills
+                        ON skills.id = user_skills.skill_id
+                    WHERE user_skills.user_id = %s
+                    """,
+                    (user_id,)
+                )
+
+                skill_rows = cur.fetchall()
+
+                user_skills = [
+                    {
+                        "skill": row[0],
+                        "level": row[1]
+                    }
+                    for row in skill_rows
+                ]
+
+                # =====================================
+                # GET PROJECTS
+                # =====================================
+
+                cur.execute(
+                    """
+                    SELECT
+                        name,
+                        description
+                    FROM projects
+                    WHERE user_id = %s
+                    """,
+                    (user_id,)
+                )
+
+                project_rows = cur.fetchall()
+
+                projects = [
+                    {
+                        "name": row[0],
+                        "description": row[1]
+                    }
+                    for row in project_rows
+                ]
+
+        # =====================================
+        # GET VACANCIES
+        # =====================================
+
+        hh_data = get_real_vacancies(
+            query=user[3]
         )
 
-    try:
-        # Получаем профиль
-        profile = get_profile(user_id)
+        vacancies = hh_data.get(
+            "vacancies",
+            []
+        )
 
-        # Получаем вакансии
-        vacancies = get_vacancies()
+        if not vacancies:
+
+            vacancies = get_vacancies()
+
+            hh_data["source"] = "demo"
+
+        # =====================================
+        # EXACT VACANCY MATCH CALCULATION
+        # =====================================
+
+        user_skills_lower = {
+            skill["skill"].strip().lower()
+            for skill in user_skills
+        }
+
+        for vacancy in vacancies:
+
+            required_skills = vacancy.get(
+                "required_skills",
+                []
+            )
+
+            # Если есть точные требования,
+            # считаем Match непосредственно Backend.
+            if required_skills:
+
+                matched = []
+                missing = []
+
+                for required_skill in required_skills:
+
+                    required_lower = (
+                        required_skill
+                        .strip()
+                        .lower()
+                    )
+
+                    if required_lower in user_skills_lower:
+
+                        matched.append(
+                            required_skill
+                        )
+
+                    else:
+
+                        missing.append(
+                            required_skill
+                        )
+
+                match_percent = round(
+                    len(matched)
+                    / len(required_skills)
+                    * 100
+                )
+
+                vacancy["match_percent"] = (
+                    match_percent
+                )
+
+                vacancy["matched_skills"] = (
+                    matched
+                )
+
+                vacancy["missing_skills"] = (
+                    missing
+                )
+
+            else:
+
+                # Для HH-вакансий requirements
+                # определит AI.
+                vacancy["match_percent"] = 0
+                vacancy["matched_skills"] = []
+                vacancy["missing_skills"] = []
+
+
+        # =====================================
+        # VACANCIES TEXT FOR AI
+        # =====================================
+
+        vacancies_text = "\n".join(
+            [
+                (
+                    f"Вакансия {vacancy.get('id', '')}\n"
+                    f"Название: {vacancy.get('title', '')}\n"
+                    f"Компания: {vacancy.get('company', '')}\n"
+                    f"Описание: {vacancy.get('description', '')}\n"
+                    f"Регион: {vacancy.get('area', '')}\n"
+                    f"Зарплата: {vacancy.get('salary', '')}\n"
+                    f"Требуемые навыки: "
+                    f"{vacancy.get('required_skills', [])}\n"
+                    f"Ссылка: {vacancy.get('url', '')}"
+                )
+                for vacancy in vacancies
+            ]
+        )
+
+        # =====================================
+        # USER SKILLS TEXT
+        # =====================================
 
         skills_text = "\n".join(
             [
-                f"- {skill['name']}: уровень {skill['level']}/5"
-                for skill in profile["skills"]
+                f"{skill['skill']}: уровень {skill['level']}/5"
+                for skill in user_skills
             ]
         )
+
+        # =====================================
+        # PROJECTS TEXT
+        # =====================================
 
         projects_text = "\n".join(
             [
-                f"- {project['name']}: {project['description']}"
-                for project in profile["projects"]
+                (
+                    f"{project['name']}: "
+                    f"{project['description']}"
+                )
+                for project in projects
             ]
         )
 
-        vacancies_text = json.dumps(
-            vacancies,
-            ensure_ascii=False
-        )
+        if not projects_text:
+
+            projects_text = "Нет проектов"
+
+        # =====================================
+        # AI PROMPT
+        # =====================================
 
         prompt = f"""
-Ты — карьерный AI-помощник.
+Ты — карьерный AI-ассистент.
 
-Проанализируй профиль пользователя и построй персональный карьерный маршрут.
+Проанализируй профиль пользователя и построй
+реалистичный карьерный путь.
 
 Целевая профессия:
-{profile["goal"]}
+{user[3]}
 
 Резюме / опыт:
-{profile["resume"]}
+{user[4] or "Нет данных"}
 
 Текущие навыки:
-{skills_text}
+{skills_text or "Нет указанных навыков"}
 
 Проекты:
 {projects_text}
 
-Доступные вакансии:
+Вакансии:
 {vacancies_text}
 
+ВАЖНЫЕ ПРАВИЛА:
 
-ВАЖНО
+1. Не считай отсутствующий навык имеющимся.
 
-Навыки из раздела "Текущие навыки" являются навыками,
-которые пользователь указал как имеющиеся.
+2. Если пользователь не указал навык,
+считай его текущий уровень равным 0.
 
-Не считай такой навык отсутствующим только потому,
-что он не упомянут в резюме или проектах.
+3. Не добавляй пользователю навыки,
+которые он не указывал.
 
-Используй указанное пользователем значение level
-как текущий уровень навыка.
+4. Для missing_skills указывай только навыки,
+которых действительно не хватает.
 
-Например:
+5. Для demo-вакансий используй переданные
+Backend значения:
 
-если в профиле есть:
-Python — уровень 3,
+- match_percent
+- matched_skills
+- missing_skills
 
-то Python является текущим навыком пользователя
-с уровнем 3.
+Они являются источником истины.
 
-В этом случае Python нельзя помещать
-в missing_skills как полностью отсутствующий навык.
+Не изменяй эти значения.
 
-Можно указать его как навык,
-который нужно улучшить,
-если требуемый уровень выше текущего.
+Для demo-вакансий match_percent рассчитывается Backend
+по формуле:
 
-Не придумывай навыки,
-которых нет в профиле.
+количество совпавших навыков /
+количество требуемых навыков × 100.
 
-Если информации недостаточно,
-укажи это.
+6. Для реальных HH-вакансий, если required_skills
+отсутствует, определи необходимые навыки
+по описанию вакансии.
 
-Уровень навыков оценивай по шкале от 1 до 5.
+Для каждой такой вакансии рассчитай приблизительный
+match_percent на основе совпадения навыков пользователя
+с требованиями вакансии.
 
-Для вакансий рассчитай примерный процент соответствия.
+7. Обязательно рассчитай career_match_percent.
 
-Roadmap должен двигаться от текущего уровня
-пользователя к целевой профессии.
+Это процент соответствия текущего профиля пользователя
+требованиям целевой профессии.
 
+Учитывай:
 
-Верни ТОЛЬКО валидный JSON.
+- текущие навыки пользователя;
+- уровни навыков от 1 до 5;
+- опыт;
+- проекты;
+- необходимые навыки целевой профессии;
+- недостающие навыки.
 
-Структура:
+career_match_percent должен быть целым числом
+от 0 до 100.
+
+0% означает практически полное отсутствие
+соответствующих навыков.
+
+100% означает практически полное соответствие
+требованиям профессии.
+
+Не ставь 0%, если у пользователя уже есть
+релевантные навыки.
+
+Например, если пользователь знает Python,
+C++ и Git, но ему не хватает SQL, FastAPI,
+PostgreSQL и Docker, career_match_percent
+должен быть заметно выше 0%.
+
+Верни ТОЛЬКО корректный JSON следующей структуры:
 
 {{
     "target_role": "string",
+
     "current_level": "string",
+
+    "career_match_percent": 0,
+
     "strengths": [
         {{
             "skill": "string",
             "level": 1
         }}
     ],
+
     "missing_skills": [
         {{
             "skill": "string",
-            "reason": "string",
-            "priority": "high"
+            "current_level": 0,
+            "required_level": 3,
+            "reason": "string"
         }}
     ],
+
     "learning": [
         {{
             "skill": "string",
-            "action": "string"
+            "priority": "high",
+            "description": "string"
         }}
     ],
-    "recommended_project": {{
-        "name": "string",
-        "description": "string",
-        "skills": ["string"]
-    }},
+
+    "recommended_project": "string",
+
     "vacancies": [
         {{
             "title": "string",
             "company": "string",
             "match_percent": 0,
-            "missing_skills": ["string"]
+            "matched_skills": [],
+            "missing_skills": [],
+            "url": ""
         }}
     ],
+
     "next_step": "string",
+
     "roadmap": [
         {{
-            "stage": 1,
+            "step": 1,
             "title": "string",
             "description": "string"
         }}
     ]
 }}
+
+Отсортируй вакансии по match_percent
+от большего к меньшему.
 """
+
+        # =====================================
+        # OPENAI
+        # =====================================
 
         response = client.responses.create(
             model="gpt-5.6-luna",
             input=prompt
         )
 
-        result_text = response.output_text.strip()
+        ai_text = response.output_text.strip()
 
-        # Убираем markdown JSON, если модель его добавила
-        if result_text.startswith("```"):
-            result_text = result_text.replace("```json", "")
-            result_text = result_text.replace("```", "")
-            result_text = result_text.strip()
+        # =====================================
+        # REMOVE MARKDOWN IF NECESSARY
+        # =====================================
 
-        result = json.loads(result_text)
+        if ai_text.startswith("```"):
 
-        # Сохраняем roadmap
+            ai_text = ai_text.replace(
+                "```json",
+                ""
+            )
+
+            ai_text = ai_text.replace(
+                "```",
+                ""
+            )
+
+            ai_text = ai_text.strip()
+
+        # =====================================
+        # PARSE JSON
+        # =====================================
+
+        try:
+
+            result = json.loads(
+                ai_text
+            )
+
+        except json.JSONDecodeError:
+
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "AI returned invalid JSON: "
+                    + ai_text
+                )
+            )
+
+        # =====================================
+        # CAREER MATCH
+        # =====================================
+
+        career_match = result.get(
+            "career_match_percent"
+        )
+
+        if isinstance(
+            career_match,
+            (int, float)
+        ):
+
+            result["career_match_percent"] = round(
+                max(
+                    0,
+                    min(
+                        100,
+                        career_match
+                    )
+                )
+            )
+
+        else:
+
+            # =================================
+            # FALLBACK CALCULATION
+            # =================================
+
+            strengths = result.get(
+                "strengths",
+                []
+            )
+
+            missing_skills = result.get(
+                "missing_skills",
+                []
+            )
+
+            total_skills = (
+                len(strengths)
+                + len(missing_skills)
+            )
+
+            if total_skills > 0:
+
+                fallback_match = round(
+                    len(strengths)
+                    / total_skills
+                    * 100
+                )
+
+            else:
+
+                fallback_match = 0
+
+            result["career_match_percent"] = (
+                fallback_match
+            )
+
+        # =====================================
+        # FORCE CORRECT VACANCY DATA
+        # =====================================
+
+        # Для demo-вакансий используем точные
+        # значения, рассчитанные Backend.
+        #
+        # Это гарантирует, что AI не сможет
+        # заменить правильный процент на 0.
+
+        if hh_data.get("source") == "demo":
+
+            result["vacancies"] = [
+                {
+                    "title": vacancy.get(
+                        "title",
+                        ""
+                    ),
+
+                    "company": vacancy.get(
+                        "company",
+                        ""
+                    ),
+
+                    "match_percent": vacancy.get(
+                        "match_percent",
+                        0
+                    ),
+
+                    "matched_skills": vacancy.get(
+                        "matched_skills",
+                        []
+                    ),
+
+                    "missing_skills": vacancy.get(
+                        "missing_skills",
+                        []
+                    ),
+
+                    "url": vacancy.get(
+                        "url",
+                        ""
+                    )
+                }
+
+                for vacancy in vacancies
+            ]
+
+        else:
+
+            # Для реальных HH-вакансий
+            # используем результат AI.
+
+            ai_vacancies = result.get(
+                "vacancies",
+                []
+            )
+
+            for ai_vacancy in ai_vacancies:
+
+                match_percent = ai_vacancy.get(
+                    "match_percent",
+                    0
+                )
+
+                try:
+                    match_percent = float(
+                        match_percent
+                    )
+                except (TypeError, ValueError):
+                    match_percent = 0
+
+                ai_vacancy["match_percent"] = round(
+                    max(
+                        0,
+                        min(
+                            100,
+                            match_percent
+                        )
+                    )
+                )
+
+                if not isinstance(
+                    ai_vacancy.get(
+                        "matched_skills"
+                    ),
+                    list
+                ):
+                    ai_vacancy[
+                        "matched_skills"
+                    ] = []
+
+                if not isinstance(
+                    ai_vacancy.get(
+                        "missing_skills"
+                    ),
+                    list
+                ):
+                    ai_vacancy[
+                        "missing_skills"
+                    ] = []
+
+            result["vacancies"] = ai_vacancies
+
+        # =====================================
+        # SORT VACANCIES
+        # =====================================
+
+        result["vacancies"] = sorted(
+            result.get(
+                "vacancies",
+                []
+            ),
+            key=lambda x: x.get(
+                "match_percent",
+                0
+            ),
+            reverse=True
+        )
+
+        # =====================================
+        # SAVE ROADMAP
+        # =====================================
+
         with get_db() as conn:
+
             with conn.cursor() as cur:
 
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO roadmaps
                     (user_id, target_role, result)
                     VALUES (%s, %s, %s)
-                """, (
-                    user_id,
-                    result.get("target_role", profile["goal"]),
-                    Json(result)
-                ))
-
-                conn.commit()
+                    """,
+                    (
+                        user_id,
+                        result.get(
+                            "target_role",
+                            user[3]
+                        ),
+                        Json(result)
+                    )
+                )
 
         return result
-
-    except json.JSONDecodeError as e:
-        print("AI JSON ERROR:", e)
-
-        raise HTTPException(
-            status_code=500,
-            detail="AI returned invalid JSON"
-        )
 
     except HTTPException:
         raise
 
     except Exception as e:
-        print("ANALYZE ERROR:", e)
+
+        print(
+            "ANALYZE ERROR:",
+            e
+        )
 
         raise HTTPException(
             status_code=500,
@@ -776,17 +1332,20 @@ Roadmap должен двигаться от текущего уровня
 
 
 # =========================
-# ROADMAP
+# GET ROADMAP
 # =========================
 
 @app.get("/roadmap/{user_id}")
 def get_roadmap(user_id: int):
 
     try:
+
         with get_db() as conn:
+
             with conn.cursor() as cur:
 
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT
                         id,
                         target_role,
@@ -795,15 +1354,18 @@ def get_roadmap(user_id: int):
                     WHERE user_id = %s
                     ORDER BY id DESC
                     LIMIT 1
-                """, (user_id,))
+                    """,
+                    (user_id,)
+                )
 
                 row = cur.fetchone()
 
-        if not row:
-            raise HTTPException(
-                status_code=404,
-                detail="Roadmap not found"
-            )
+                if not row:
+
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Roadmap not found"
+                    )
 
         return {
             "id": row[0],
@@ -815,7 +1377,6 @@ def get_roadmap(user_id: int):
         raise
 
     except Exception as e:
-        print("GET ROADMAP ERROR:", e)
 
         raise HTTPException(
             status_code=500,
