@@ -839,11 +839,11 @@ ${API_BASE_URL}`
   const careerDynamics =
     getCareerDynamics()
 
-  // =========================================================
-  // SELECT CAREER PATH
-  // =========================================================
+ // =========================================================
+// SELECT CAREER PATH
+// =========================================================
 
-  const selectCareerPath = (
+const selectCareerPath = (
   event: MouseEvent<HTMLButtonElement>,
   path: any
 ) => {
@@ -875,37 +875,6 @@ ${API_BASE_URL}`
     behavior: 'smooth',
   })
 }
-      await loadHistory(userId)
-
-      scrollToResult()
-
-    } catch (error) {
-      console.error(
-        'Ошибка выбора направления:',
-        error
-      )
-
-      if (
-        error instanceof TypeError
-      ) {
-        alert(
-          `Frontend не может подключиться к Backend.
-
-Проверь адрес:
-${API_BASE_URL}`
-        )
-      } else {
-        alert(
-          error instanceof Error
-            ? error.message
-            : 'Не удалось построить новый маршрут.'
-        )
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
   // =========================================================
   // RENDER
   // =========================================================
