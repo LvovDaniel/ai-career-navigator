@@ -843,73 +843,38 @@ ${API_BASE_URL}`
   // SELECT CAREER PATH
   // =========================================================
 
-  const selectCareerPath = async (
-    event: MouseEvent<HTMLButtonElement>,
-    path: any
-  ) => {
-    event.stopPropagation()
+  const selectCareerPath = (
+  event: MouseEvent<HTMLButtonElement>,
+  path: any
+) => {
+  event.stopPropagation()
 
-    const selectedRole =
-      path?.title ||
-      path?.role
+  const selectedRole =
+    path?.title ||
+    path?.role
 
-    if (!selectedRole) {
-      alert(
-        'Не удалось определить выбранное направление.'
-      )
-      return
-    }
+  if (!selectedRole) {
+    alert(
+      'Не удалось определить выбранное направление.'
+    )
+    return
+  }
 
-    const selectedRoleText =
-      String(selectedRole).trim()
+  const selectedRoleText =
+    String(selectedRole).trim()
 
-    if (!selectedRoleText) {
-      return
-    }
+  if (!selectedRoleText) {
+    return
+  }
 
-    setGoal(selectedRoleText)
-    setSelectedCareerPath(null)
-    setLoading(true)
+  setGoal(selectedRoleText)
+  setSelectedCareerPath(null)
 
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth',
-    })
-
-    try {
-      const professionAllowed =
-        await isProfessionAllowed(
-          selectedRoleText
-        )
-
-      if (!professionAllowed) {
-        throw new Error(
-          `Профессия "${selectedRoleText}" отсутствует в списке доступных профессий.`
-        )
-      }
-
-      let userId =
-        getStoredUserId()
-
-      if (!userId) {
-        userId =
-          await createUser(
-            selectedRoleText
-          )
-      }
-
-      await saveSkills(userId)
-
-      await saveProfile(
-        userId,
-        selectedRoleText
-      )
-
-      const data =
-        await runAnalysis(userId)
-
-      setResult(data)
-
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth',
+  })
+}
       await loadHistory(userId)
 
       scrollToResult()
