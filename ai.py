@@ -1342,56 +1342,53 @@ def analyze(user_id: int):
 
             hh_data["source"] = "demo"
 
-# =================================================
-# EXACT VACANCY MATCH
-# =================================================
+        # =================================================
+        # EXACT VACANCY MATCH
+        # =================================================
 
-user_skill_names = {
-    str(skill["skill"]).strip().lower()
-    for skill in user_skills
-    if str(skill.get("skill", "")).strip()
-}
+        user_skill_names = {
+            str(skill["skill"]).strip().lower()
+            for skill in user_skills
+            if str(skill.get("skill", "")).strip()
+        }
 
-if hh_data.get("source") == "demo":
+        if hh_data.get("source") == "demo":
 
-    for vacancy in vacancies_data:
+            for vacancy in vacancies_data:
 
-        required_skills = vacancy.get(
-            "required_skills",
-            []
-        )
+                required_skills = vacancy.get(
+                    "required_skills",
+                    []
+                )
 
-        matched = []
-        missing = []
+                matched = []
+                missing = []
 
-        for required_skill in required_skills:
+                for required_skill in required_skills:
 
-            required_name = (
-                str(required_skill)
-                .strip()
-                .lower()
-            )
+                    required_name = (
+                        str(required_skill)
+                        .strip()
+                        .lower()
+                    )
 
-            if required_name in user_skill_names:
-                matched.append(required_skill)
-            else:
-                missing.append(required_skill)
+                    if required_name in user_skill_names:
+                        matched.append(required_skill)
+                    else:
+                        missing.append(required_skill)
 
-        if required_skills:
+                if required_skills:
+                    match_percent = round(
+                        len(matched)
+                        / len(required_skills)
+                        * 100
+                    )
+                else:
+                    match_percent = 0
 
-            match_percent = round(
-                len(matched)
-                / len(required_skills)
-                * 100
-            )
-
-        else:
-
-            match_percent = 0
-
-        vacancy["match_percent"] = match_percent
-        vacancy["matched_skills"] = matched
-        vacancy["missing_skills"] = missing
+                vacancy["match_percent"] = match_percent
+                vacancy["matched_skills"] = matched
+                vacancy["missing_skills"] = missing
         # =================================================
         # SKILLS TEXT
         # =================================================
