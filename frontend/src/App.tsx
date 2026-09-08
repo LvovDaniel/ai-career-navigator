@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import './App.css'
 
-const API_BASE_URL = 'http://127.0.0.1:8000'
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
 
 // =========================================================
 // ICONS FOR PROFESSIONS
@@ -65,7 +66,9 @@ function App() {
   // =========================================================
 
   useEffect(() => {
-    const handleClickOutside = (event: globalThis.MouseEvent) => {
+    const handleClickOutside = (
+      event: globalThis.MouseEvent
+    ) => {
       if (
         professionDropdownRef.current &&
         !professionDropdownRef.current.contains(
@@ -176,7 +179,7 @@ function App() {
   // CHECK PROFESSION
   // =========================================================
 
-  const isProfessionAllowed = async (
+  const isProfessionAllowed = (
     profession: string
   ) => {
     const normalizedInput =
@@ -451,14 +454,13 @@ function App() {
   const saveSkills = async (
     userId: number
   ) => {
-    // Полностью синхронизируем навыки с тем,
-    // что сейчас указано пользователем.
-    // Старые навыки из БД будут удалены backend'ом.
     const uniqueSkills = Array.from(
       new Set(
         skillList
           .map((skill) => skill.trim())
-          .filter((skill) => skill.length > 0)
+          .filter(
+            (skill) => skill.length > 0
+          )
       )
     )
 
@@ -650,10 +652,12 @@ function App() {
     setSelectedCareerPath(null)
 
     try {
+      // =====================================================
       // CHECK PROFESSION
+      // =====================================================
 
       const professionAllowed =
-        await isProfessionAllowed(
+        isProfessionAllowed(
           selectedGoal
         )
 
@@ -663,7 +667,9 @@ function App() {
         )
       }
 
+      // =====================================================
       // USER
+      // =====================================================
 
       let userId =
         getStoredUserId()
@@ -675,25 +681,44 @@ function App() {
           )
       }
 
+      // =====================================================
       // SAVE SKILLS
+      // =====================================================
 
       await saveSkills(userId)
 
+      // =====================================================
       // SAVE PROFILE
+      // =====================================================
 
       await saveProfile(
         userId,
         selectedGoal
       )
 
+      // =====================================================
       // AI
+      // =====================================================
 
       const data =
         await runAnalysis(userId)
 
-      setResult(data)
+      // Защита от пустой профессии в ответе Backend
+      const normalizedResult = {
+        ...data,
+        target_role:
+          data?.target_role ||
+          selectedGoal,
+        current_level:
+          data?.current_level ||
+          'Начальный',
+      }
 
+      setResult(normalizedResult)
+
+      // =====================================================
       // HISTORY
+      // =====================================================
 
       await loadHistory(userId)
 
@@ -838,42 +863,43 @@ ${API_BASE_URL}`
   const careerDynamics =
     getCareerDynamics()
 
- // =========================================================
-// SELECT CAREER PATH
-// =========================================================
+  // =========================================================
+  // SELECT CAREER PATH
+  // =========================================================
 
-const selectCareerPath = (
-  event: MouseEvent<HTMLButtonElement>,
-  path: any
-) => {
-  event.stopPropagation()
+  const selectCareerPath = (
+    event: MouseEvent<HTMLButtonElement>,
+    path: any
+  ) => {
+    event.stopPropagation()
 
-  const selectedRole =
-    path?.title ||
-    path?.role
+    const selectedRole =
+      path?.title ||
+      path?.role
 
-  if (!selectedRole) {
-    alert(
-      'Не удалось определить выбранное направление.'
-    )
-    return
+    if (!selectedRole) {
+      alert(
+        'Не удалось определить выбранное направление.'
+      )
+      return
+    }
+
+    const selectedRoleText =
+      String(selectedRole).trim()
+
+    if (!selectedRoleText) {
+      return
+    }
+
+    setGoal(selectedRoleText)
+    setSelectedCareerPath(null)
+
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    })
   }
 
-  const selectedRoleText =
-    String(selectedRole).trim()
-
-  if (!selectedRoleText) {
-    return
-  }
-
-  setGoal(selectedRoleText)
-  setSelectedCareerPath(null)
-
-  window.scrollTo({
-    top: 0,
-    behavior: 'smooth',
-  })
-}
   // =========================================================
   // RENDER
   // =========================================================
@@ -1106,6 +1132,7 @@ const selectCareerPath = (
                   ) : (
 
                     <div className="profession-empty">
+
                       <span>
                         🔎
                       </span>
@@ -1117,6 +1144,7 @@ const selectCareerPath = (
                       <small>
                         Попробуй изменить запрос
                       </small>
+
                     </div>
 
                   )}
@@ -1296,7 +1324,9 @@ const selectCareerPath = (
                 </span>
 
                 <h3>
-                  {result.target_role}
+                  {result.target_role ||
+                    goal ||
+                    'Профессия не указана'}
                 </h3>
 
               </div>
@@ -1308,7 +1338,8 @@ const selectCareerPath = (
                 </span>
 
                 <h3>
-                  {result.current_level}
+                  {result.current_level ||
+                    'Начальный'}
                 </h3>
 
               </div>

@@ -21,7 +21,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      YANDEX_API_KEY: ${YANDEX_API_KEY}
+      YANDEX_FOLDER_ID: ${YANDEX_FOLDER_ID}
+      YANDEX_MODEL: ${YANDEX_MODEL}
       DB_HOST: db
       DB_PORT: 5432
       DB_NAME: ai_navigator
@@ -30,8 +32,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - ./:/app
 
 volumes:
   postgres_data:
