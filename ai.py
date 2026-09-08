@@ -8,7 +8,7 @@ from openai import OpenAI
 import os
 import requests
 import json
-
+import time
 
 # =========================================================
 # ENV
@@ -121,7 +121,35 @@ AVAILABLE_PROFESSIONS = [
     "Machine Learning Engineer",
 ]
 
-
+AVAILABLE_SKILLS = [
+    "Python",
+    "C++",
+    "Java",
+    "JavaScript",
+    "TypeScript",
+    "React",
+    "HTML",
+    "CSS",
+    "FastAPI",
+    "Django",
+    "PostgreSQL",
+    "SQL",
+    "Git",
+    "Docker",
+    "Linux",
+    "REST API",
+    "OOP",
+    "STL",
+    "CMake",
+    "Pandas",
+    "NumPy",
+    "Power BI",
+    "Excel",
+    "UML",
+    "BPMN",
+    "Testing",
+    "CI/CD"
+]
 # =========================================================
 # NORMALIZE PROFESSION
 # =========================================================
@@ -1178,7 +1206,7 @@ def vacancies():
 
 @app.post("/analyze")
 def analyze(user_id: int):
-
+    print("🔥 ANALYZE START", user_id)
     try:
 
         # =================================================
@@ -1287,28 +1315,16 @@ def analyze(user_id: int):
             )
 
         # =================================================
-        # GET VACANCIES
+        # DEMO VACANCIES
         # =================================================
 
-        hh_data = get_real_vacancies(
-            query=goal
-        )
+        vacancies_data = get_vacancies()
 
-        vacancies_data = (
-            hh_data.get(
-                "vacancies",
-                []
-            )
-        )
-
-        if not vacancies_data:
-
-            vacancies_data = (
-                get_vacancies()
-            )
-
-            hh_data["source"] = "demo"
-
+        hh_data = {
+            "source": "demo",
+            "vacancies": vacancies_data
+        }
+        print("ANALYZE: DEMO VACANCIES OK")
         # =================================================
         # EXACT VACANCY MATCH
         # =================================================
@@ -1446,22 +1462,8 @@ def analyze(user_id: int):
         vacancies_text = "\n".join(
             [
                 (
-                    f"Вакансия "
-                    f"{vacancy.get('id', '')}\n"
-                    f"Название: "
-                    f"{vacancy.get('title', '')}\n"
-                    f"Компания: "
-                    f"{vacancy.get('company', '')}\n"
-                    f"Описание: "
-                    f"{vacancy.get('description', '')}\n"
-                    f"Регион: "
-                    f"{vacancy.get('area', '')}\n"
-                    f"Зарплата: "
-                    f"{vacancy.get('salary', '')}\n"
-                    f"Требуемые навыки: "
-                    f"{vacancy.get('required_skills', [])}\n"
-                    f"Ссылка: "
-                    f"{vacancy.get('url', '')}"
+                    f"{vacancy.get('title', '')}: "
+                    f"{vacancy.get('required_skills', [])}"
                 )
                 for vacancy in vacancies_data
             ]
@@ -1498,200 +1500,84 @@ def analyze(user_id: int):
         # =================================================
 
         prompt = f"""
-Ты — AI Career Navigator.
+        Ты — AI Career Navigator.
 
-Проведи карьерный анализ пользователя
-и построй персональный карьерный маршрут.
+        Проведи краткий карьерный анализ пользователя.
 
-ЦЕЛЕВАЯ ПРОФЕССИЯ:
-{goal}
+        Целевая профессия:
+        {goal}
 
-ТЕКУЩИЕ НАВЫКИ:
-{skills_text}
+        Навыки пользователя:
+        {skills_text}
 
-ОПЫТ И ПРОЕКТЫ:
-{experience}
+        Опыт:
+        {experience}
 
-ВАКАНСИИ:
-{vacancies_text}
+        Вакансии:
+        {vacancies_text}
 
-Проанализируй:
+        Определи:
+        1. Сильные стороны пользователя.
+        2. Какие навыки стоит изучить.
+        3. Какой практический проект сделать.
+        4. Краткий план развития.
 
-1. Текущий уровень пользователя.
-2. Его сильные стороны.
-3. Недостающие навыки.
-4. Что нужно изучить в первую очередь.
-5. Практический проект для развития.
-6. Подходящие вакансии.
-7. Карьерный маршрут.
-8. Следующий конкретный шаг.
-9. Другие подходящие карьерные направления.
+        ВАЖНО:
+        - Не придумывай навыки пользователя.
+        - Не рассчитывай проценты соответствия.
+        - Не анализируй вакансии подробно.
+        - Ответ должен быть коротким.
+        - Верни ТОЛЬКО валидный JSON.
+        - Без markdown.
+        - Без ```json.
+        - Без текста до или после JSON.
 
-ВАЖНЫЕ ПРАВИЛА:
+        Формат ответа:
 
-- Никогда не придумывай текущие навыки пользователя.
-- Текущими навыками считаются ТОЛЬКО навыки
-  из блока "ТЕКУЩИЕ НАВЫКИ".
-- Не считай требования вакансий текущими навыками.
-- Не считай название профессии текущим навыком.
-- Используй переданные уровни.
-- Если навыков нет, считай пользователя начинающим.
-- Если опыта нет, не придумывай его.
-- Отсутствие навыка не является ошибкой.
-
-Для вакансий используй формулу:
-
-matched skills / required skills * 100
-
-Отсортируй вакансии
-от большего match_percent к меньшему.
-
-КРИТИЧЕСКИ ВАЖНО:
-
-Верни ТОЛЬКО валидный JSON.
-
-НЕ используй markdown.
-НЕ используй ```json.
-НЕ добавляй текст до JSON.
-НЕ добавляй текст после JSON.
-
-Ответ должен начинаться с {{
-и заканчиваться символом }}.
-
-Формат:
-
-{{
-  "target_role": "Backend Developer",
-
-  "current_level": "Начальный уровень (Junior)",
-
-  "strengths": [
-    "Python: уровень 3"
-  ],
-
-  "missing_skills": [
-    {{
-      "skill": "FastAPI",
-      "current_level": 0,
-      "required_level": 3,
-      "reason": "Навык требуется для backend-разработки."
-    }}
-  ],
-
-  "learning": [
-    "Изучить FastAPI",
-    "Изучить PostgreSQL",
-    "Изучить Docker"
-  ],
-
-  "recommended_project": {{
-    "name": "Название проекта",
-    "description": "Описание проекта",
-    "technologies": [
-      "Python",
-      "FastAPI",
-      "PostgreSQL"
-    ]
-  }},
-
-  "vacancies": [],
-
-  "next_step":
-    "Начать изучение FastAPI и создать небольшой REST API.",
-
-  "roadmap": [
-    {{
-      "step": 1,
-      "title": "Изучить FastAPI",
-      "description":
-        "Изучить маршруты, запросы и ответы."
-    }},
-    {{
-      "step": 2,
-      "title": "Изучить PostgreSQL",
-      "description":
-        "Научиться работать с базой данных."
-    }},
-    {{
-      "step": 3,
-      "title": "Создать проект",
-      "description":
-        "Сделать полноценный backend-проект."
-    }}
-  ],
-
-  "career_match_percent": 55,
-
-"career_paths": [
-    {{
-      "title": "Backend Developer",
-      "match_percent": 70,
-      "why":
-        "Направление соответствует текущим навыкам.",
-      "description":
-        "Разработка серверной части приложений.",
-      "required_skills": [
-        "Python",
-        "FastAPI",
-        "SQL"
-      ],
-      "missing_skills": [
-        "FastAPI",
-        "SQL"
-      ],
-      "first_step":
-        "Изучить FastAPI.",
-      "recommended_project":
-        "Создать REST API."
-    }},
-    {{
-      "title": "Python Developer",
-      "match_percent": 55,
-      "why":
-        "Навыки программирования позволяют развиваться в Python.",
-      "description":
-        "Разработка приложений и сервисов на Python.",
-      "required_skills": [
-        "Python",
-        "Git"
-      ],
-      "missing_skills": [
-        "Python",
-        "Git"
-      ],
-      "first_step":
-        "Изучить Python и Git.",
-      "recommended_project":
-        "Создать Python-приложение."
-    }},
-    {{
-      "title": "C++ Developer",
-      "match_percent": 60,
-      "why":
-        "Текущий навык C++ подходит для этого направления.",
-      "description":
-        "Разработка программного обеспечения на C++.",
-      "required_skills": [
-        "C++",
-        "Git",
-        "OOP"
-      ],
-      "missing_skills": [
-        "Git",
-        "OOP"
-      ],
-      "first_step":
-        "Изучить Git и углубить знания ООП.",
-      "recommended_project":
-        "Создать приложение на C++."
-    }}
-  ]
-}}
-"""
+        {{
+            "analysis": "Краткая оценка текущего уровня",
+            "strengths": [
+                "сильная сторона 1",
+                "сильная сторона 2"
+            ],
+            "missing_skills": [
+                {{
+                    "skill": "Python",
+                    "reason": "Почему навык нужен"
+                }}
+            ],
+            "learning": [
+                "Что изучить сначала",
+                "Что изучить потом"
+            ],
+            "project": {{
+                "title": "Название проекта",
+                "description": "Краткое описание проекта"
+            }},
+            "roadmap": [
+                {{
+                    "step": 1,
+                    "title": "Первый шаг",
+                    "description": "Что сделать"
+                }},
+                {{
+                    "step": 2,
+                    "title": "Второй шаг",
+                    "description": "Что сделать"
+                }},
+                {{
+                    "step": 3,
+                    "title": "Третий шаг",
+                    "description": "Что сделать"
+                }}
+            ]
+        }}
+        """
 
         # =================================================
         # YANDEX AI
         # =================================================
+        start_time = time.time()
 
         response = client.chat.completions.create(
             model=YANDEX_MODEL,
@@ -1701,18 +1587,17 @@ matched skills / required skills * 100
                     "content": prompt
                 }
             ],
-            temperature=0.2,
-            max_tokens=7000
+            temperature=0.3,
+            max_tokens=900
         )
 
         raw_result = (
-            response.choices[0].message.content
-            or ""
+                response.choices[0].message.content
+                or ""
         ).strip()
 
         print(
-            "RAW AI RESULT:",
-            raw_result
+            f"YANDEX AI TIME: {time.time() - start_time:.2f} sec"
         )
 
         # =================================================
@@ -1829,7 +1714,213 @@ matched skills / required skills * 100
                 )
             ).strip()
         }
+        # =================================================
+        # CAREER PATHS BY USER SKILLS
+        # =================================================
 
+        CAREER_REQUIREMENTS = {
+            "Backend Developer": [
+                "Python",
+                "FastAPI",
+                "PostgreSQL",
+                "Git",
+                "Docker"
+            ],
+
+            "Python Developer": [
+                "Python",
+                "Git",
+                "SQL",
+                "REST API"
+            ],
+
+            "C++ Developer": [
+                "C++",
+                "Git",
+                "OOP",
+                "STL",
+                "CMake"
+            ],
+
+            "Frontend Developer": [
+                "JavaScript",
+                "TypeScript",
+                "React",
+                "HTML",
+                "CSS"
+            ],
+
+            "DevOps Engineer": [
+                "Linux",
+                "Docker",
+                "Git",
+                "CI/CD"
+            ],
+
+            "Data Analyst": [
+                "Python",
+                "SQL",
+                "Excel",
+                "Pandas",
+                "Power BI"
+            ],
+
+            "System Analyst": [
+                "SQL",
+                "UML",
+                "BPMN",
+                "API",
+                "REST API"
+            ],
+
+            "QA Engineer": [
+                "Testing",
+                "Python",
+                "SQL",
+                "Git",
+                "API"
+            ]
+        }
+
+        def calculate_skill_match(required_skills, user_skills):
+
+            if not required_skills:
+                return 0
+
+            total = 0
+
+            for required_skill in required_skills:
+
+                required_name = normalize_skill_name(
+                    required_skill
+                )
+
+                best_level = 0
+
+                for user_skill in user_skills:
+
+                    user_name = normalize_skill_name(
+                        user_skill.get("skill", "")
+                    )
+
+                    if user_name == required_name:
+
+                        try:
+                            level = int(
+                                user_skill.get(
+                                    "level",
+                                    0
+                                ) or 0
+                            )
+                        except:
+                            level = 0
+
+                        best_level = max(
+                            best_level,
+                            level
+                        )
+
+                # 5/5 = 100%
+                # 4/5 = 80%
+                # 3/5 = 60%
+                # 2/5 = 40%
+                # 1/5 = 20%
+                total += (
+                                 best_level / 5
+                         ) * 100
+
+            return round(
+                total / len(required_skills)
+            )
+
+        # -------------------------------------------------
+        # Формируем 3 лучших направления
+        # -------------------------------------------------
+
+        career_candidates = []
+
+        for title, required_skills in CAREER_REQUIREMENTS.items():
+
+            percent = calculate_skill_match(
+                required_skills,
+                user_skills
+            )
+
+            matched = []
+            missing = []
+
+            for required_skill in required_skills:
+
+                required_name = normalize_skill_name(
+                    required_skill
+                )
+
+                found = False
+
+                for user_skill in user_skills:
+
+                    user_name = normalize_skill_name(
+                        user_skill.get("skill", "")
+                    )
+
+                    if user_name == required_name:
+
+                        try:
+                            level = int(
+                                user_skill.get(
+                                    "level",
+                                    0
+                                ) or 0
+                            )
+                        except:
+                            level = 0
+
+                        if level > 0:
+                            matched.append(
+                                required_skill
+                            )
+                            found = True
+
+                        break
+
+                if not found:
+                    missing.append(
+                        required_skill
+                    )
+
+            career_candidates.append(
+                {
+                    "title": title,
+                    "match_percent": percent,
+                    "why": (
+                        "Процент рассчитан на основе "
+                        "текущих навыков и их уровня."
+                    ),
+                    "description": (
+                        f"Направление {title} "
+                        "соответствует части текущих навыков."
+                    ),
+                    "required_skills": required_skills,
+                    "missing_skills": missing,
+                    "first_step": (
+                        f"Развить навыки: "
+                        f"{', '.join(missing[:2])}"
+                        if missing
+                        else "Углубить текущие навыки."
+                    ),
+                    "recommended_project": (
+                        f"Создать учебный проект "
+                        f"для направления {title}."
+                    )
+                }
+            )
+
+        career_candidates.sort(
+            key=lambda x: x["match_percent"],
+            reverse=True
+        )
+
+        result["career_paths"] = career_candidates[:3]
         # =================================================
         # PROTECT STRENGTHS
         # =================================================
@@ -1946,66 +2037,28 @@ matched skills / required skills * 100
         )
 
         # =================================================
-        # CAREER MATCH
+        # REAL CAREER MATCH
         # =================================================
 
-        career_match = result.get(
-            "career_match_percent"
+        target_requirements = (
+            CAREER_REQUIREMENTS.get(
+                goal,
+                []
+            )
         )
 
-        if isinstance(
-            career_match,
-            (int, float)
-        ):
+        if target_requirements:
 
-            result[
-                "career_match_percent"
-            ] = round(
-                max(
-                    0,
-                    min(
-                        100,
-                        career_match
-                    )
+            result["career_match_percent"] = (
+                calculate_skill_match(
+                    target_requirements,
+                    user_skills
                 )
             )
 
         else:
 
-            strengths_count = len(
-                result.get(
-                    "strengths",
-                    []
-                )
-            )
-
-            missing_count = len(
-                result.get(
-                    "missing_skills",
-                    []
-                )
-            )
-
-            total_skills = (
-                strengths_count
-                + missing_count
-            )
-
-            if total_skills > 0:
-
-                result[
-                    "career_match_percent"
-                ] = round(
-                    strengths_count
-                    / total_skills
-                    * 100
-                )
-
-            else:
-
-                result[
-                    "career_match_percent"
-                ] = 0
+            result["career_match_percent"] = 0
 
         # =================================================
         # NORMALIZE ARRAYS
